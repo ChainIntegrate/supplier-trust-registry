@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Supplier Trust Registry — ChainIntegrate</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+<style>
+  /* -----------------------------------------------------------------
+     Token system — vedi discussione "blueprint" in chat:
+     bianco carta + blu blueprint + azzurro polvere + inchiostro blu-nero
+     + un solo accento caldo (ambra) riservato alle azioni irreversibili
+     ----------------------------------------------------------------- */
+  :root {
+    --paper: #FAFBFC;
+    --blueprint: #1D5C9E;
+    --blueprint-dark: #164A80;
+    --powder: #E8F1FA;
+    --powder-line: #C9DDF0;
+    --ink: #16232E;
+    --ink-soft: #52657A;
+    --amber: #C77B2E;
+    --amber-soft: #FBEEE0;
+    --radius: 6px;
+    --font-display: 'IBM Plex Sans', sans-serif;
+    --font-mono: 'IBM Plex Mono', monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-display);
+    font-size: 15px;
+    line-height: 1.5;
+    /* Elemento firma: griglia millimetrata in filigrana, come carta da disegno tecnico */
+    background-image:
+      linear-gradient(var(--powder-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--powder-line) 1px, transparent 1px);
+    background-size: 28px 28px;
+    background-attachment: fixed;
+  }
+
+  a { color: var(--blueprint); }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 28px;
+    background: rgba(250, 251, 252, 0.9);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid var(--powder-line);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  .wordmark {
+    font-weight: 700;
+    font-size: 17px;
+    letter-spacing: -0.01em;
+  }
+  .wordmark span { color: var(--blueprint); }
+
+  main {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 32px 20px 80px;
+  }
+
+  .btn {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 14px;
+    border: 1px solid var(--blueprint);
+    background: var(--blueprint);
+    color: white;
+    padding: 10px 18px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  .btn:hover { background: var(--blueprint-dark); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--blueprint);
+  }
+  .btn-ghost:hover { background: var(--powder); }
+
+  .btn-amber {
+    border-color: var(--amber);
+    background: var(--amber);
+  }
+  .btn-amber:hover { background: #A9691F; }
+
+  .card {
+    background: white;
+    border: 1px solid var(--powder-line);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+
+  .card h3 {
+    margin: 0 0 4px;
+    font-size: 15px;
+  }
+
+  .muted { color: var(--ink-soft); font-size: 13px; }
+
+  .mono {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink-soft);
+    word-break: break-all;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 999px;
+  }
+  .badge-public { background: var(--powder); color: var(--blueprint-dark); }
+  .badge-private { background: #EEF0F2; color: var(--ink-soft); }
+  .badge-amber { background: var(--amber-soft); color: var(--amber); }
+
+  input[type="text"], input[type="password"], input[type="number"], textarea, select {
+    font-family: var(--font-display);
+    font-size: 14px;
+    padding: 9px 11px;
+    border: 1px solid var(--powder-line);
+    border-radius: var(--radius);
+    width: 100%;
+    background: white;
+    color: var(--ink);
+  }
+  input:focus, textarea:focus, select:focus {
+    outline: 2px solid var(--blueprint);
+    outline-offset: 1px;
+  }
+
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    margin-top: 12px;
+  }
+  label:first-child { margin-top: 0; }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 14px;
+    padding: 12px;
+    border-radius: var(--radius);
+    background: var(--powder);
+  }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(22, 35, 46, 0.45);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 20px;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: white;
+    border-radius: var(--radius);
+    padding: 24px;
+    max-width: 420px;
+    width: 100%;
+    border: 1px solid var(--powder-line);
+  }
+  .modal h2 { margin-top: 0; font-size: 16px; }
+
+  .warning-box {
+    background: var(--amber-soft);
+    border: 1px solid var(--amber);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    font-size: 13px;
+    color: #7A4A17;
+    margin-top: 12px;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 48px 20px;
+    color: var(--ink-soft);
+  }
+
+  .row { display: flex; gap: 10px; align-items: center; }
+  .row-between { display: flex; justify-content: space-between; align-items: center; }
+
+  .divider { border: none; border-top: 1px solid var(--powder-line); margin: 16px 0; }
+
+  #status-line { font-size: 13px; margin-top: 10px; min-height: 18px; }
+  #status-line.error { color: #B03A2E; }
+  #status-line.ok { color: #1D8A4E; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wordmark">ChainIntegrate <span>·</span> Supplier Trust Registry</div>
+  <div id="wallet-area">
+    <button class="btn" id="btn-connect">Connetti Universal Profile</button>
+  </div>
+</header>
+
+<main id="app-root">
+  <div class="empty-state">Connessione in corso…</div>
+</main>
+
+<!-- ===================== MODALE PIN ===================== -->
+<div class="modal-backdrop" id="pin-modal">
+  <div class="modal">
+    <h2>Codice segreto del registro</h2>
+    <p class="muted">
+      Serve per cifrare/decifrare i dati privati sul tuo dispositivo. Non viene mai
+      inviato a nessun server, nemmeno a ChainIntegrate — se lo perdi, i dati privati
+      non sono recuperabili da nessuno.
+    </p>
+    <label for="pin-input">Codice</label>
+    <input type="password" id="pin-input" autocomplete="off" placeholder="Il tuo codice segreto" />
+    <div class="row" style="margin-top:16px; justify-content:flex-end;">
+      <button class="btn btn-ghost" id="pin-cancel">Annulla</button>
+      <button class="btn" id="pin-confirm">Sblocca</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== MODALE NUOVO FORNITORE ===================== -->
+<div class="modal-backdrop" id="supplier-modal">
+  <div class="modal">
+    <h2>Nuovo fornitore</h2>
+    <label for="supplier-name">Nome fornitore</label>
+    <input type="text" id="supplier-name" placeholder="Es. Acme Meccanica Srl" />
+
+    <div class="toggle-row">
+      <div>
+        <div style="font-weight:600; font-size:13px;">Nome visibile pubblicamente</div>
+        <div class="muted">Se disattivo, il nome resta cifrato — solo tu lo vedi</div>
+      </div>
+      <input type="checkbox" id="supplier-public-toggle" style="width:auto;" />
+    </div>
+
+    <div class="row" style="margin-top:20px; justify-content:flex-end;">
+      <button class="btn btn-ghost" id="supplier-cancel">Annulla</button>
+      <button class="btn" id="supplier-confirm">Crea fornitore</button>
+    </div>
+    <div id="supplier-status" class="muted" style="margin-top:8px;"></div>
+  </div>
+</div>
+
+<!-- ===================== MODALE NUOVA VALUTAZIONE ===================== -->
+<div class="modal-backdrop" id="evaluation-modal">
+  <div class="modal">
+    <h2>Nuova valutazione</h2>
+    <div id="evaluation-criteria-fields"></div>
+
+    <label for="evaluation-note">Note</label>
+    <textarea id="evaluation-note" rows="3" placeholder="Osservazioni facoltative"></textarea>
+
+    <div class="toggle-row" id="evaluation-public-row">
+      <div>
+        <div style="font-weight:600; font-size:13px;">Rendi pubblica questa valutazione</div>
+        <div class="muted">Chiunque legga la blockchain potrà leggerla — per sempre</div>
+      </div>
+      <input type="checkbox" id="evaluation-public-toggle" style="width:auto;" />
+    </div>
+    <div class="warning-box" id="evaluation-public-warning" style="display:none;">
+      Una volta resa pubblica, questa valutazione è leggibile da chiunque, per sempre.
+      Anche disattivando di nuovo l'interruttore in futuro, il contenuto già pubblicato
+      resta recuperabile da chi lo ha già scaricato.
+    </div>
+
+    <div class="row" style="margin-top:20px; justify-content:flex-end;">
+      <button class="btn btn-ghost" id="evaluation-cancel">Annulla</button>
+      <button class="btn" id="evaluation-confirm">Salva valutazione</button>
+    </div>
+    <div id="evaluation-status" class="muted" style="margin-top:8px;"></div>
+  </div>
+</div>
+
+<script>
+  // ABI reale, estratta dalla compilazione del contratto (build_opt/*.abi).
+  // Tenuta come script classico (non module) cosi' e' un global disponibile
+  // per il <script type="module"> successivo, senza bisogno di un fetch
+  // separato ne' di un secondo file da servire.
+  window.REGISTRY_ABI_JSON = [{"inputs":[],"name":"ERC725Y_DataKeysValuesEmptyArray","type":"error"},{"inputs":[],"name":"ERC725Y_DataKeysValuesLengthMismatch","type":"error"},{"inputs":[],"name":"ERC725Y_MsgValueDisallowed","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"supplierId","type":"uint256"},{"internalType":"uint256","name":"evaluationId","type":"uint256"}],"name":"EvaluationDoesNotExist","type":"error"},{"inputs":[{"internalType":"bytes","name":"storedData","type":"bytes"}],"name":"InvalidExtensionAddress","type":"error"},{"inputs":[{"internalType":"bytes","name":"data","type":"bytes"}],"name":"InvalidFunctionSelector","type":"error"},{"inputs":[],"name":"LSP4TokenNameNotEditable","type":"error"},{"inputs":[],"name":"LSP4TokenSymbolNotEditable","type":"error"},{"inputs":[],"name":"LSP4TokenTypeNotEditable","type":"error"},{"inputs":[{"internalType":"uint256","name":"callIndex","type":"uint256"}],"name":"LSP8BatchCallFailed","type":"error"},{"inputs":[],"name":"LSP8CannotSendToAddressZero","type":"error"},{"inputs":[],"name":"LSP8CannotUseAddressZeroAsOperator","type":"error"},{"inputs":[],"name":"LSP8InvalidTransferBatch","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"LSP8NonExistentTokenId","type":"error"},{"inputs":[{"internalType":"address","name":"operator","type":"address"},{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"LSP8NonExistingOperator","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"address","name":"caller","type":"address"}],"name":"LSP8NotTokenOperator","type":"error"},{"inputs":[{"internalType":"address","name":"tokenOwner","type":"address"},{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"address","name":"caller","type":"address"}],"name":"LSP8NotTokenOwner","type":"error"},{"inputs":[{"internalType":"address","name":"tokenReceiver","type":"address"}],"name":"LSP8NotifyTokenReceiverContractMissingLSP1Interface","type":"error"},{"inputs":[{"internalType":"address","name":"tokenReceiver","type":"address"}],"name":"LSP8NotifyTokenReceiverIsEOA","type":"error"},{"inputs":[{"internalType":"address","name":"operator","type":"address"},{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"LSP8OperatorAlreadyAuthorized","type":"error"},{"inputs":[{"internalType":"address","name":"caller","type":"address"},{"internalType":"address","name":"tokenOwner","type":"address"},{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"LSP8RevokeOperatorNotAuthorized","type":"error"},{"inputs":[],"name":"LSP8TokenContractCannotHoldValue","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"LSP8TokenIdAlreadyMinted","type":"error"},{"inputs":[],"name":"LSP8TokenIdFormatNotEditable","type":"error"},{"inputs":[],"name":"LSP8TokenIdsDataEmptyArray","type":"error"},{"inputs":[],"name":"LSP8TokenIdsDataLengthMismatch","type":"error"},{"inputs":[],"name":"LSP8TokenOwnerCannotBeOperator","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"address","name":"oldOwner","type":"address"},{"internalType":"address","name":"newOwner","type":"address"}],"name":"LSP8TokenOwnerChanged","type":"error"},{"inputs":[{"internalType":"bytes4","name":"functionSelector","type":"bytes4"}],"name":"NoExtensionFoundForFunctionSelector","type":"error"},{"inputs":[{"internalType":"bytes32","name":"oldTokenId","type":"bytes32"}],"name":"NoPendingSuccessionProposal","type":"error"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"NoRecognizedMembership","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"address","name":"caller","type":"address"}],"name":"NotRegistryOwner","type":"error"},{"inputs":[],"name":"OwnableCannotSetZeroAddressAsOwner","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"limit","type":"uint256"}],"name":"ParamLimitReached","type":"error"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"RegistryAlreadyMinted","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"RegistryDoesNotExist","type":"error"},{"inputs":[],"name":"RegistryNotTransferable","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"version","type":"uint256"}],"name":"SchemaVersionDoesNotExist","type":"error"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"SelectiveDisclosureNotAllowed","type":"error"},{"inputs":[{"internalType":"bytes32","name":"newTokenId","type":"bytes32"}],"name":"SuccessorAlreadySet","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"supplierId","type":"uint256"}],"name":"SupplierDoesNotExist","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"limit","type":"uint256"}],"name":"SupplierLimitReached","type":"error"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"indexed":true,"internalType":"uint256","name":"supplierId","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"evaluationId","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"schemaVersion","type":"uint256"},{"indexed":false,"internalType":"bytes32","name":"contentHash","type":"bytes32"},{"indexed":false,"internalType":"string","name":"uri","type":"string"},{"indexed":false,"internalType":"bool","name":"isPublic","type":"bool"},{"indexed":false,"internalType":"uint256","name":"supersedes","type":"uint256"}],"name":"EvaluationAdded","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"indexed":true,"internalType":"uint256","name":"supplierId","type":"uint256"},{"indexed":true,"internalType":"uint256","name":"evaluationId","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"disclosureId","type":"uint256"},{"indexed":false,"internalType":"string","name":"disclosureUri","type":"string"},{"indexed":false,"internalType":"bytes32","name":"disclosureHash","type":"bytes32"}],"name":"EvaluationDisclosed","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"indexed":true,"internalType":"address","name":"owner","type":"address"}],"name":"RegistryMinted","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"indexed":true,"internalType":"uint256","name":"version","type":"uint256"},{"indexed":false,"internalType":"string[]","name":"paramNames","type":"string[]"},{"indexed":false,"internalType":"int256","name":"minValue","type":"int256"},{"indexed":false,"internalType":"int256","name":"maxValue","type":"int256"}],"name":"SchemaDefined","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"oldTokenId","type":"bytes32"},{"indexed":true,"internalType":"bytes32","name":"newTokenId","type":"bytes32"}],"name":"SuccessionConfirmed","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"oldTokenId","type":"bytes32"},{"indexed":true,"internalType":"bytes32","name":"newTokenId","type":"bytes32"}],"name":"SuccessionProposed","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"indexed":true,"internalType":"uint256","name":"supplierId","type":"uint256"},{"indexed":false,"internalType":"bytes32","name":"nameHash","type":"bytes32"},{"indexed":false,"internalType":"string","name":"nameUri","type":"string"},{"indexed":false,"internalType":"bool","name":"isNamePublic","type":"bool"}],"name":"SupplierAdded","type":"event"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"supplierId","type":"uint256"},{"internalType":"uint256","name":"schemaVersion","type":"uint256"},{"internalType":"bytes32","name":"contentHash","type":"bytes32"},{"internalType":"string","name":"uri","type":"string"},{"internalType":"bool","name":"isPublic","type":"bool"},{"internalType":"uint256","name":"supersedes","type":"uint256"}],"name":"addEvaluation","outputs":[{"internalType":"uint256","name":"evaluationId","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"bytes32","name":"nameHash","type":"bytes32"},{"internalType":"string","name":"nameUri","type":"string"},{"internalType":"bool","name":"isNamePublic","type":"bool"}],"name":"addSupplier","outputs":[{"internalType":"uint256","name":"supplierId","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"bytes32","name":"newTokenId","type":"bytes32"},{"internalType":"bytes32","name":"oldTokenId","type":"bytes32"}],"name":"confirmSuccessor","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"string[]","name":"paramNames","type":"string[]"},{"internalType":"int256","name":"minValue","type":"int256"},{"internalType":"int256","name":"maxValue","type":"int256"}],"name":"defineSchema","outputs":[{"internalType":"uint256","name":"version","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"supplierId","type":"uint256"},{"internalType":"uint256","name":"evaluationId","type":"uint256"},{"internalType":"string","name":"disclosureUri","type":"string"},{"internalType":"bytes32","name":"disclosureHash","type":"bytes32"}],"name":"discloseEvaluation","outputs":[{"internalType":"uint256","name":"disclosureId","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"bytes32","name":"","type":"bytes32"},{"internalType":"uint256","name":"","type":"uint256"},{"internalType":"uint256","name":"","type":"uint256"}],"name":"disclosureCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"","type":"bytes32"},{"internalType":"uint256","name":"","type":"uint256"}],"name":"evaluationCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"getEffectiveLimits","outputs":[{"internalType":"uint256","name":"maxSuppliers","type":"uint256"},{"internalType":"uint256","name":"maxParams","type":"uint256"},{"internalType":"bool","name":"canDiscloseSelectively","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"version","type":"uint256"}],"name":"getSchema","outputs":[{"internalType":"string[]","name":"paramNames","type":"string[]"},{"internalType":"int256","name":"minValue","type":"int256"},{"internalType":"int256","name":"maxValue","type":"int256"},{"internalType":"uint256","name":"createdAt","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"mintRegistry","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"owner","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"","type":"bytes32"}],"name":"predecessorOf","outputs":[{"internalType":"bytes32","name":"","type":"bytes32"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"oldTokenId","type":"bytes32"},{"internalType":"bytes32","name":"newTokenId","type":"bytes32"}],"name":"proposeSuccessor","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"schemaVersionsCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"","type":"bytes32"}],"name":"supplierCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"tokenOwnerOf","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"}];
+</script>
+<script type="module">
+const REGISTRY_ABI_JSON = window.REGISTRY_ABI_JSON;
+
+// =======================================================================
+// CONFIGURAZIONE — da completare prima del deploy reale
+// =======================================================================
+const CONFIG = {
+  CHAIN_ID: 42, // 42 = LUKSO mainnet, 4201 = testnet
+  RPC_URL: "https://42.rpc.thirdweb.com/REPLACE_WITH_CLIENT_ID", // stesso provider gia' in uso per MatchPredictor
+  REGISTRY_CONTRACT: "0x0000000000000000000000000000000000000000", // TODO: indirizzo post-deploy
+  KDF_ITERATIONS: 600000, // PBKDF2-HMAC-SHA256, raccomandazione OWASP 2023/2025
+};
+
+// ABI curata (sottoinsieme reale, estratta dalla compilazione — vedi frontend/abi.subset.json,
+// generata da build_opt/contracts_SupplierRegistry_sol_SupplierRegistry.abi)
+const ABI = REGISTRY_ABI_JSON;
+
+// =======================================================================
+// LIBRERIE — ethers via esm.sh, up-provider via esm.sh
+// (stesso pattern gia' in uso per erc725.js negli altri progetti ChainIntegrate:
+//  il bundle CommonJS su jsDelivr non espone un global nel browser, esm.sh si')
+// =======================================================================
+import { ethers } from "https://esm.sh/ethers@6.13.4";
+import { createClientUPProvider } from "https://esm.sh/@lukso/up-provider@0.3.5";
+
+// =======================================================================
+// STATO GLOBALE
+// =======================================================================
+const state = {
+  upProvider: null,
+  ethersProvider: null,
+  signer: null,
+  visitorAccount: null,   // chi ha collegato il wallet (per firmare/pagare gas)
+  contextAccount: null,   // la UP nel cui Grid gira la mini-app (il "proprietario" del contesto)
+  contract: null,
+  contractReadOnly: null,
+  tokenId: null,          // bytes32(uint256(uint160(contextAccount)))
+  isOwner: false,
+  cryptoKey: null,        // CryptoKey derivata dal PIN, tenuta solo in memoria di sessione
+  schemaCache: null,
+  suppliersCache: [],
+};
+
+const $ = (id) => document.getElementById(id);
+
+// =======================================================================
+// CRIPTOGRAFIA — PBKDF2 (SubtleCrypto nativo) + AES-256-GCM
+// Stesso identico flusso dimostrato in chat: JSON in chiaro -> cifrato ->
+// byte grezzi su IPFS. Sale = keccak256(indirizzo UP che minta + indirizzo
+// contratto), letto SEMPRE dalla catena al momento del mint, mai dalla
+// sessione corrente (per non rischiare un sale sbagliato in caso di bug UI).
+// =======================================================================
+
+async function deriveKey(pin, ownerAddress, contractAddress) {
+  const saltSource = ethers.getBytes(
+    ethers.keccak256(ethers.concat([
+      ethers.getBytes(ownerAddress),
+      ethers.getBytes(contractAddress),
+    ]))
+  );
+  const pinBytes = new TextEncoder().encode(pin);
+  const baseKey = await crypto.subtle.importKey("raw", pinBytes, "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    {
+      name: "PBKDF2",
+      salt: saltSource,
+      iterations: CONFIG.KDF_ITERATIONS,
+      hash: "SHA-256",
+    },
+    baseKey,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+async function encryptJSON(obj, key) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const plaintext = new TextEncoder().encode(JSON.stringify(obj));
+  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext);
+  // formato caricato: iv (12 byte) + ciphertext+tag (GCM li concatena gia')
+  const bytes = new Uint8Array(iv.length + ciphertext.byteLength);
+  bytes.set(iv, 0);
+  bytes.set(new Uint8Array(ciphertext), iv.length);
+
+  const contentHash = ethers.keccak256(plaintext);
+  return { bytes, contentHash };
+}
+
+async function decryptJSON(bytes, key) {
+  const iv = bytes.slice(0, 12);
+  const ciphertext = bytes.slice(12);
+  const plaintextBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+  return JSON.parse(new TextDecoder().decode(plaintextBuf));
+}
+
+// =======================================================================
+// IPFS / PINATA — placeholder: da collegare al backend proxy esistente
+// (stesso pattern "backend proxy" gia' documentato per gli altri progetti:
+//  la JWT Pinata resta lato server, mai nel frontend)
+// =======================================================================
+async function uploadToIPFS(bytes) {
+  // TODO: sostituire con la vera chiamata al backend proxy ChainIntegrate.
+  // Il backend riceve SOLO byte gia' cifrati (o gia' pubblici in chiaro se
+  // isPublic=true) e li inoltra a Pinata — non vede mai il PIN ne' la chiave.
+  const form = new FormData();
+  form.append("file", new Blob([bytes]));
+  const res = await fetch("/api/ipfs/upload", { method: "POST", body: form });
+  if (!res.ok) throw new Error("Upload IPFS fallito");
+  const { cid } = await res.json();
+  return `ipfs://${cid}`;
+}
+
+async function fetchFromIPFS(uri) {
+  const cid = uri.replace("ipfs://", "");
+  const res = await fetch(`https://gateway.pinata.cloud/ipfs/${cid}`);
+  if (!res.ok) throw new Error("Lettura IPFS fallita");
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+// =======================================================================
+// CONNESSIONE UP — up-provider distingue visitorAccount (chi firma) da
+// contextAccount (la UP nel cui Grid gira la mini-app). Il proprietario
+// del Registro e' sempre il contextAccount: e' la UP "titolare" della pagina,
+// non necessariamente chi sta visitando in quel momento.
+// =======================================================================
+async function connect() {
+  state.upProvider = createClientUPProvider();
+  state.ethersProvider = new ethers.BrowserProvider(state.upProvider);
+
+  const accounts = await state.upProvider.request("eth_requestAccounts", []);
+  const contextAccounts = await state.upProvider.request("up_contextAccounts", []);
+
+  state.visitorAccount = accounts[0] || null;
+  state.contextAccount = contextAccounts[0] || null;
+
+  if (!state.contextAccount) {
+    renderError("Impossibile determinare la UP proprietaria di questo contesto (contextAccount vuoto). Apri questa mini-app da dentro il Grid di un profilo.");
+    return;
+  }
+
+  state.signer = await state.ethersProvider.getSigner();
+  state.isOwner = state.visitorAccount?.toLowerCase() === state.contextAccount.toLowerCase();
+
+  state.contract = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, ABI, state.signer);
+  state.contractReadOnly = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, ABI, state.ethersProvider);
+
+  state.tokenId = ethers.zeroPadValue(state.contextAccount, 32);
+
+  $("btn-connect").textContent = shortAddr(state.visitorAccount) + (state.isOwner ? " (proprietario)" : " (visitatore)");
+  $("btn-connect").disabled = true;
+
+  state.upProvider.on("contextAccountsChanged", () => window.location.reload());
+  state.upProvider.on("accountsChanged", () => window.location.reload());
+
+  await loadRegistry();
+}
+
+function shortAddr(addr) {
+  if (!addr) return "";
+  return addr.slice(0, 6) + "…" + addr.slice(-4);
+}
+
+// =======================================================================
+// CARICAMENTO REGISTRO
+// =======================================================================
+async function loadRegistry() {
+  let ownerOfToken;
+  try {
+    ownerOfToken = await state.contractReadOnly.tokenOwnerOf(state.tokenId);
+  } catch (e) {
+    // LSP8NonExistentTokenId -> nessun registro ancora mintato
+    renderMintScreen();
+    return;
+  }
+  await renderDashboard();
+}
+
+async function renderMintScreen() {
+  const [maxSuppliers, maxParams] = await state.contractReadOnly.getEffectiveLimits(state.contextAccount);
+  const root = $("app-root");
+
+  if (maxSuppliers === 0n) {
+    root.innerHTML = `
+      <div class="empty-state">
+        <h3>Nessuna Membership riconosciuta</h3>
+        <p class="muted">Serve almeno una Membership ChainIntegrate (Bronze o superiore)<br/>collegata a questa Universal Profile per poter mintare un Registro.</p>
+      </div>`;
+    return;
+  }
+
+  root.innerHTML = `
+    <div class="empty-state">
+      <h3>Nessun Registro ancora mintato</h3>
+      <p class="muted">Limiti attuali in base alla tua Membership: fino a ${maxSuppliers} fornitori.</p>
+      ${state.isOwner
+        ? `<button class="btn" id="btn-mint" style="margin-top:12px;">Minta il tuo Registro</button>`
+        : `<p class="muted">Solo la UP proprietaria di questo contesto può mintare il Registro.</p>`}
+    </div>`;
+
+  if (state.isOwner) {
+    $("btn-mint").addEventListener("click", async () => {
+      setStatus("Conferma la transazione dal tuo wallet…");
+      try {
+        const tx = await state.contract.mintRegistry();
+        setStatus("Transazione inviata, in attesa di conferma…");
+        await tx.wait();
+        await loadRegistry();
+      } catch (e) {
+        renderError(explainRevert(e));
+      }
+    });
+  }
+}
+
+// =======================================================================
+// DASHBOARD PRINCIPALE
+// =======================================================================
+async function renderDashboard() {
+  const [maxSuppliers] = await state.contractReadOnly.getEffectiveLimits(state.contextAccount);
+  const supplierCount = await state.contractReadOnly.supplierCount(state.tokenId);
+  const schemaVersions = await state.contractReadOnly.schemaVersionsCount(state.tokenId);
+
+  const root = $("app-root");
+  root.innerHTML = `
+    <div class="row-between">
+      <div>
+        <h2 style="margin:0;">Il tuo Registro</h2>
+        <div class="mono">${state.tokenId}</div>
+      </div>
+      <div class="row">
+        ${state.isOwner ? `<button class="btn btn-ghost" id="btn-unlock">🔓 Sblocca dati privati</button>` : ""}
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:20px;">
+      <div class="row-between">
+        <div><strong>${supplierCount}</strong> <span class="muted">/ ${maxSuppliers} fornitori</span></div>
+        ${schemaVersions === 0n
+          ? `<span class="badge badge-amber">Schema non ancora definito</span>`
+          : `<span class="badge badge-public">Schema v${schemaVersions - 1n}</span>`}
+      </div>
+    </div>
+
+    ${schemaVersions === 0n && state.isOwner ? renderSchemaSetup() : ""}
+    ${schemaVersions > 0n ? `<div id="suppliers-list"></div>` : ""}
+    ${schemaVersions > 0n && state.isOwner ? `<button class="btn" id="btn-add-supplier" style="margin-top:8px;">+ Nuovo fornitore</button>` : ""}
+    <div id="status-line"></div>
+  `;
+
+  if (schemaVersions === 0n && state.isOwner) wireSchemaSetup();
+  if (schemaVersions > 0n) {
+    await renderSuppliers();
+    if (state.isOwner) $("btn-add-supplier").addEventListener("click", openSupplierModal);
+  }
+  if (state.isOwner) $("btn-unlock").addEventListener("click", openPinModal);
+}
+
+function renderSchemaSetup() {
+  return `
+    <div class="card">
+      <h3>Definisci i criteri di valutazione</h3>
+      <p class="muted">Solo la prima volta — versioni successive si possono aggiungere senza perdere lo storico.</p>
+      <label>Criteri (uno per riga)</label>
+      <textarea id="schema-params" rows="4" placeholder="Puntualità&#10;Qualità&#10;Documentazione&#10;Reattività"></textarea>
+      <div class="row" style="margin-top:10px;">
+        <div style="flex:1;">
+          <label>Valore minimo</label>
+          <input type="number" id="schema-min" value="1" />
+        </div>
+        <div style="flex:1;">
+          <label>Valore massimo</label>
+          <input type="number" id="schema-max" value="10" />
+        </div>
+      </div>
+      <button class="btn" id="btn-save-schema" style="margin-top:14px;">Salva schema</button>
+      <div id="schema-status" class="muted" style="margin-top:8px;"></div>
+    </div>`;
+}
+
+function wireSchemaSetup() {
+  $("btn-save-schema").addEventListener("click", async () => {
+    const params = $("schema-params").value.split("\n").map(s => s.trim()).filter(Boolean);
+    const min = BigInt($("schema-min").value);
+    const max = BigInt($("schema-max").value);
+    if (params.length === 0) { $("schema-status").textContent = "Inserisci almeno un criterio."; return; }
+    if (min >= max) { $("schema-status").textContent = "Il minimo deve essere inferiore al massimo."; return; }
+
+    $("schema-status").textContent = "Conferma la transazione…";
+    try {
+      const tx = await state.contract.defineSchema(state.tokenId, params, min, max);
+      await tx.wait();
+      await renderDashboard();
+    } catch (e) {
+      $("schema-status").textContent = explainRevert(e);
+    }
+  });
+}
+
+// =======================================================================
+// FORNITORI — lettura via eventi (getLogs), non via storage
+// =======================================================================
+async function renderSuppliers() {
+  const filter = state.contractReadOnly.filters.SupplierAdded(state.tokenId);
+  const events = await state.contractReadOnly.queryFilter(filter);
+
+  const container = $("suppliers-list");
+  if (events.length === 0) {
+    container.innerHTML = `<div class="empty-state">Nessun fornitore ancora — inizia aggiungendone uno.</div>`;
+    return;
+  }
+
+  container.innerHTML = "";
+  for (const ev of events) {
+    const { supplierId, nameHash, nameUri, isNamePublic } = ev.args;
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `
+      <div class="row-between">
+        <h3 id="supplier-name-${supplierId}">
+          ${isNamePublic ? "…caricamento…" : `Fornitore #${supplierId}`}
+        </h3>
+        <span class="badge ${isNamePublic ? "badge-public" : "badge-private"}">
+          ${isNamePublic ? "Nome pubblico" : "Nome privato"}
+        </span>
+      </div>
+      <div class="mono" style="margin-top:4px;">nameHash: ${nameHash.slice(0, 18)}…</div>
+      <button class="btn btn-ghost" data-supplier-id="${supplierId}" style="margin-top:10px;">+ Valutazione</button>
+      <div class="evaluations" id="evaluations-${supplierId}" style="margin-top:12px;"></div>
+    `;
+    container.appendChild(card);
+
+    card.querySelector("button").addEventListener("click", () => openEvaluationModal(supplierId));
+
+    resolveSupplierName(supplierId, nameHash, nameUri, isNamePublic);
+    renderEvaluationsForSupplier(supplierId);
+  }
+}
+
+async function resolveSupplierName(supplierId, nameHash, nameUri, isNamePublic) {
+  const el = $(`supplier-name-${supplierId}`);
+  try {
+    if (isNamePublic) {
+      const bytes = await fetchFromIPFS(nameUri);
+      const { name } = JSON.parse(new TextDecoder().decode(bytes));
+      el.textContent = name;
+    } else if (state.cryptoKey) {
+      const bytes = await fetchFromIPFS(nameUri);
+      const { name } = await decryptJSON(bytes, state.cryptoKey);
+      el.textContent = name;
+    }
+    // se privato e nessuna chiave sbloccata, resta "Fornitore #N" (gia' impostato)
+  } catch (e) {
+    el.textContent = `Fornitore #${supplierId} (impossibile decifrare)`;
+  }
+}
+
+// =======================================================================
+// VALUTAZIONI
+// =======================================================================
+async function renderEvaluationsForSupplier(supplierId) {
+  const filter = state.contractReadOnly.filters.EvaluationAdded(state.tokenId, supplierId);
+  const events = await state.contractReadOnly.queryFilter(filter);
+  const container = $(`evaluations-${supplierId}`);
+  if (!container) return;
+
+  if (events.length === 0) {
+    container.innerHTML = `<div class="muted">Nessuna valutazione ancora.</div>`;
+    return;
+  }
+
+  container.innerHTML = events.map(ev => {
+    const { evaluationId, isPublic, contentHash, supersedes } = ev.args;
+    return `
+      <div class="row-between" style="padding:8px 0; border-top:1px solid var(--powder-line);">
+        <span class="mono">#${evaluationId} · ${contentHash.slice(0, 14)}…${supersedes > 0n ? ` (corregge #${supersedes})` : ""}</span>
+        <span class="badge ${isPublic ? "badge-public" : "badge-private"}">${isPublic ? "Pubblica" : "Privata"}</span>
+      </div>`;
+  }).join("");
+}
+
+// =======================================================================
+// MODALE PIN — deriva la chiave e la tiene SOLO in memoria di sessione
+// =======================================================================
+function openPinModal() {
+  $("pin-modal").classList.add("open");
+  $("pin-input").focus();
+}
+$("pin-cancel").addEventListener("click", () => $("pin-modal").classList.remove("open"));
+$("pin-confirm").addEventListener("click", async () => {
+  const pin = $("pin-input").value;
+  if (!pin) return;
+  state.cryptoKey = await deriveKey(pin, state.contextAccount, CONFIG.REGISTRY_CONTRACT);
+  $("pin-input").value = "";
+  $("pin-modal").classList.remove("open");
+  await renderSuppliers(); // ri-risolve i nomi privati ora decifrabili
+});
+
+// =======================================================================
+// MODALE NUOVO FORNITORE
+// =======================================================================
+function openSupplierModal() {
+  if (!state.cryptoKey) { openPinModal(); return; }
+  $("supplier-modal").classList.add("open");
+}
+$("supplier-cancel").addEventListener("click", () => $("supplier-modal").classList.remove("open"));
+$("supplier-confirm").addEventListener("click", async () => {
+  const name = $("supplier-name").value.trim();
+  const isPublic = $("supplier-public-toggle").checked;
+  if (!name) return;
+
+  $("supplier-status").textContent = "Cifratura e upload in corso…";
+  try {
+    let nameUri, nameHash;
+    if (isPublic) {
+      const plaintext = new TextEncoder().encode(JSON.stringify({ name }));
+      nameHash = ethers.keccak256(plaintext);
+      nameUri = await uploadToIPFS(plaintext);
+    } else {
+      const { bytes, contentHash } = await encryptJSON({ name }, state.cryptoKey);
+      nameHash = contentHash;
+      nameUri = await uploadToIPFS(bytes);
+    }
+
+    $("supplier-status").textContent = "Conferma la transazione…";
+    const tx = await state.contract.addSupplier(state.tokenId, nameHash, nameUri, isPublic);
+    await tx.wait();
+
+    $("supplier-modal").classList.remove("open");
+    $("supplier-name").value = "";
+    await renderDashboard();
+  } catch (e) {
+    $("supplier-status").textContent = explainRevert(e);
+  }
+});
+
+// =======================================================================
+// MODALE NUOVA VALUTAZIONE
+// =======================================================================
+let currentSupplierId = null;
+
+async function openEvaluationModal(supplierId) {
+  if (!state.cryptoKey) { openPinModal(); return; }
+  currentSupplierId = supplierId;
+
+  const versionsCount = await state.contractReadOnly.schemaVersionsCount(state.tokenId);
+  const latestVersion = versionsCount - 1n;
+  const [paramNames, minValue, maxValue] = await state.contractReadOnly.getSchema(state.tokenId, latestVersion);
+
+  $("evaluation-criteria-fields").innerHTML = paramNames.map((p, i) => `
+    <label for="crit-${i}">${p} (${minValue}–${maxValue})</label>
+    <input type="number" id="crit-${i}" min="${minValue}" max="${maxValue}" value="${minValue}" />
+  `).join("");
+
+  $("evaluation-modal").dataset.schemaVersion = latestVersion.toString();
+  $("evaluation-modal").dataset.paramCount = paramNames.length.toString();
+  $("evaluation-modal").classList.add("open");
+}
+$("evaluation-cancel").addEventListener("click", () => $("evaluation-modal").classList.remove("open"));
+$("evaluation-public-toggle").addEventListener("change", (e) => {
+  $("evaluation-public-warning").style.display = e.target.checked ? "block" : "none";
+});
+$("evaluation-confirm").addEventListener("click", async () => {
+  const modal = $("evaluation-modal");
+  const schemaVersion = BigInt(modal.dataset.schemaVersion);
+  const paramCount = Number(modal.dataset.paramCount);
+  const isPublic = $("evaluation-public-toggle").checked;
+  const note = $("evaluation-note").value;
+
+  const criteri = {};
+  for (let i = 0; i < paramCount; i++) {
+    const label = $("evaluation-criteria-fields").children[i * 2].textContent.split(" (")[0];
+    criteri[label] = Number($(`crit-${i}`).value);
+  }
+  const payload = { criteri, note };
+
+  $("evaluation-status").textContent = "Cifratura e upload in corso…";
+  try {
+    let uri, contentHash;
+    if (isPublic) {
+      const plaintext = new TextEncoder().encode(JSON.stringify(payload));
+      contentHash = ethers.keccak256(plaintext);
+      uri = await uploadToIPFS(plaintext);
+    } else {
+      const { bytes, contentHash: h } = await encryptJSON(payload, state.cryptoKey);
+      contentHash = h;
+      uri = await uploadToIPFS(bytes);
+    }
+
+    $("evaluation-status").textContent = "Conferma la transazione…";
+    const tx = await state.contract.addEvaluation(
+      state.tokenId, currentSupplierId, schemaVersion, contentHash, uri, isPublic, 0
+    );
+    await tx.wait();
+
+    modal.classList.remove("open");
+    $("evaluation-note").value = "";
+    $("evaluation-public-toggle").checked = false;
+    $("evaluation-public-warning").style.display = "none";
+    await renderEvaluationsForSupplier(currentSupplierId);
+  } catch (e) {
+    $("evaluation-status").textContent = explainRevert(e);
+  }
+});
+
+// =======================================================================
+// UTILITY
+// =======================================================================
+function setStatus(msg, isError = false) {
+  const el = $("status-line");
+  if (!el) return;
+  el.textContent = msg;
+  el.className = isError ? "error" : "ok";
+}
+
+function renderError(msg) {
+  $("app-root").innerHTML = `<div class="empty-state">${msg}</div>`;
+}
+
+function explainRevert(e) {
+  // ethers v6 decodifica gli errori custom se l'ABI li contiene (li abbiamo inclusi)
+  const name = e?.revert?.name || e?.errorName;
+  const known = {
+    RegistryAlreadyMinted: "Hai già un Registro mintato per questa UP.",
+    NoRecognizedMembership: "Nessuna Membership riconosciuta su questa UP.",
+    SupplierLimitReached: "Hai raggiunto il numero massimo di fornitori per il tuo tier.",
+    ParamLimitReached: "Troppi criteri per il tuo tier attuale.",
+    NotRegistryOwner: "Solo il proprietario del Registro può eseguire questa azione.",
+    SelectiveDisclosureNotAllowed: "La disclosure selettiva richiede il tier Gold o superiore.",
+  };
+  if (name && known[name]) return known[name];
+  return "Operazione non riuscita: " + (e?.shortMessage || e?.message || "errore sconosciuto");
+}
+
+// =======================================================================
+// AVVIO
+// =======================================================================
+$("btn-connect").addEventListener("click", connect);
+</script>
+
+</body>
+</html>
