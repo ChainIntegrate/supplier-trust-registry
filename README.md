@@ -21,13 +21,19 @@ supplier-trust-registry/
 │   ├── index.html                — SPA vanilla JS, mini-app per il Grid
 │   └── abi.subset.json           — ABI curata usata da index.html (estratta
 │                                    dalla compilazione reale, non scritta a mano)
+├── backend/
+│   ├── server.js                 — Express, wiring delle rotte
+│   ├── auth.js                   — challenge/verify stile SIWE su Universal Profile
+│   ├── pinata.js                 — upload verso Pinata Files API v3
+│   ├── package.json
+│   └── .env.example              — template variabili ambiente (nessun segreto reale)
 ├── LICENSE                       — tutti i diritti riservati, contatto per permessi
 ├── .gitignore
 └── README.md                     — questo file
 ```
 
-Non ancora presenti nel repo (da aggiungere quando si passa al deploy vero):
-`hardhat.config.js`, `package.json`, script di deploy, eventuali test.
+Non ancora presenti nel repo: `hardhat.config.js` e script di deploy — arrivano
+nella fase Codespace (vedi "Ordine di lavoro" più sotto).
 
 ---
 
@@ -59,19 +65,49 @@ verificata (non ancora testata in browser con wallet reale). Palette
 "blueprint" (bianco/blu, ancorata al mondo dei disegni tecnici), IBM Plex
 Sans/Mono, connessione UP via `up-provider`, flusso di mint/schema/fornitori/
 valutazioni, cifratura client-side (PBKDF2 600.000 iterazioni + AES-256-GCM).
+**Non ancora collegato al nuovo flusso di autenticazione del backend** (vedi
+sotto) — `uploadToIPFS()` chiama ancora `/api/ipfs/upload` senza passare da
+`/api/auth/challenge` → firma → `/api/auth/verify` → token. Va sistemato
+nella fase VPS (vedi "Ordine di lavoro").
+
+**Backend** (`backend/`) — Express minimale, due sole responsabilità:
+autenticazione "prova che controlli questa UP" via `isValidSignature`
+on-chain (stesso principio del SIWE documentato da LUKSO), e inoltro verso
+Pinata Files API v3 (l'endpoint attuale, non il legacy `/pinning/pinFileToIPFS`
+che si trova ancora in molti tutorial vecchi). Non cifra mai nulla, non vede
+mai un PIN. Verificato in locale: il server parte, tutte le rotte rispondono,
+il flusso challenge→firma→verifica testato end-to-end con un wallet vero
+(manca solo il test del percorso di successo, che richiede una UP reale con
+permesso SIGN e un RPC vero — non testabile in sandbox). Multer fissato a
+2.x deliberatamente: la 1.x ha vulnerabilità note segnalate da `npm audit`.
 
 ### Da completare prima di un deploy reale
 
-- `CONFIG.REGISTRY_CONTRACT` in `index.html` — indirizzo del contratto dopo il deploy
-- `CONFIG.RPC_URL` — client ID thirdweb (stesso provider di MatchPredictor)
-- Endpoint backend `/api/ipfs/upload` — proxy verso Pinata (JWT lato server,
-  mai nel frontend, stesso pattern di FidelityHub) — **non ancora scritto**
+- `hardhat.config.js` + script di deploy — **fase Codespace**, prossimo passo
+- `CONFIG.REGISTRY_CONTRACT` e `CONFIG.RPC_URL` in `index.html` — dopo il deploy
+- Collegare `index.html` al flusso di autenticazione del backend — **fase VPS**
+- `PINATA_JWT`, `LUKSO_RPC_URL`, `JWT_SECRET` veri in `backend/.env` (mai committato)
 - Verifica empirica dell'import di `@lukso/up-provider` via esm.sh in un
-  browser reale con estensione UP collegata (non testabile in sandbox)
-- `hardhat.config.js` + script di deploy (non ancora presenti nel repo)
+  browser reale con estensione UP collegata
 - Test automatici (non ancora scritti)
 - Decisione finale KDF (PBKDF2 nativo usato per zero dipendenze esterne;
   Argon2id/scrypt restano opzioni se si accetta di aggiungere una libreria)
+
+---
+
+## Ordine di lavoro deciso
+
+1. **Repo** (qui) — struttura, contratto, frontend, backend, README aggiornato ✅
+2. **Codespace** — `hardhat.config.js`, script di deploy, deploy su **testnet**
+   (mai direttamente mainnet per un primo test), configurazione Membership
+   (contratti accettati + limiti per tier) sul contratto appena deployato
+3. **VPS** — collegare `index.html` al backend (auth + upload reale),
+   deploy del backend con PM2, test end-to-end mint → schema → fornitore →
+   valutazione
+
+Non saltare l'ordine senza motivo: il deploy (punto 2) è testabile solo
+in parte senza il punto 3 (mint e definizione schema sì, aggiungere
+fornitori/valutazioni no, perché serve l'upload IPFS funzionante).
 
 ---
 
