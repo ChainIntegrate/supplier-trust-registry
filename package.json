@@ -1,0 +1,21 @@
+{
+  "name": "supplier-trust-registry",
+  "version": "1.0.0",
+  "description": "Contratti Solidity del Supplier Trust Registry — ChainIntegrate",
+  "scripts": {
+    "compile": "hardhat compile",
+    "deploy:testnet": "hardhat run scripts/deploy.js --network luksoTestnet",
+    "deploy:mainnet": "hardhat run scripts/deploy.js --network luksoMainnet"
+  },
+  "dependencies": {
+    "@lukso/lsp4-contracts": "^0.17.3",
+    "@lukso/lsp8-contracts": "^0.18.1",
+    "@openzeppelin/contracts": "4.9.6"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "dotenv": "^16.4.5",
+    "hardhat": "^2.22.0",
+    "solc": "^0.8.27"
+  }
+}
