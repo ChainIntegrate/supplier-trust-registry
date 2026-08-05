@@ -30,21 +30,31 @@ async function main() {
   const ownerAddress = process.env.CHAININTEGRATE_OWNER_ADDRESS || deployer.address;
   if (!process.env.CHAININTEGRATE_OWNER_ADDRESS) {
     console.warn(
-      "ATTENZIONE: CHAININTEGRATE_OWNER_ADDRESS non impostato, uso il deployer come owner. " +
-      "Su testnet/mainnet reale va impostato esplicitamente alla UP ChainIntegrate, " +
-      "altrimenti l'owner del contratto resta l'EOA che paga il gas."
+      "ATTENZIONE: CHAININTEGRATE_OWNER_ADDRESS non impostato, la UP ChainIntegrate " +
+      "non ricevera' l'ownership finale — restera' al deployer."
     );
   }
 
+  // -----------------------------------------------------------------
+  // Owner TEMPORANEO = deployer, non la UP ChainIntegrate. Il contratto
+  // usa Ownable di OpenZeppelin (one-step, niente acceptOwnership): se
+  // l'owner fosse gia' la UP fin dal costruttore, nessuna chiamata
+  // onlyOwner successiva (addMembershipContract, setTierLimits) potrebbe
+  // essere firmata da una semplice chiave privata di deploy — servirebbe
+  // una transazione firmata dalla UP stessa via Key Manager, cosa che
+  // uno script di deploy non puo' fare da solo. Si configura tutto come
+  // deployer, poi si trasferisce l'ownership alla UP come ULTIMO passo.
+  // -----------------------------------------------------------------
   const SupplierRegistry = await hre.ethers.getContractFactory("SupplierRegistry");
   const registry = await SupplierRegistry.deploy(
     "ChainIntegrate Supplier Trust Registry",
     "SUPTRUST",
-    ownerAddress
+    deployer.address
   );
   await registry.waitForDeployment();
   const registryAddress = await registry.getAddress();
   console.log("\nSupplierRegistry deployato a:", registryAddress);
+  console.log("Owner temporaneo (deployer):", deployer.address);
 
   const membershipAddress = process.env.MEMBERSHIP_CONTRACT_ADDRESS;
   if (!membershipAddress) {
@@ -53,29 +63,42 @@ async function main() {
       "Il contratto e' deployato ma nessuno potra' mintare un Registro finche' non\n" +
       "viene chiamato addMembershipContract() + setTierLimits() per almeno un tier."
     );
-    printSummary(registryAddress, null);
-    return;
+  } else {
+    console.log("\nCollego il contratto Membership:", membershipAddress);
+    const tx1 = await registry.addMembershipContract(membershipAddress);
+    await tx1.wait();
+    console.log("addMembershipContract confermato.");
+
+    for (const t of TIER_LIMITS) {
+      const tx = await registry.setTierLimits(
+        membershipAddress,
+        t.tier,
+        t.maxSuppliers,
+        t.maxParams,
+        t.canDiscloseSelectively
+      );
+      await tx.wait();
+      console.log(
+        `Tier ${t.tier} (${t.label}) configurato: ` +
+        `${t.maxSuppliers} fornitori, ${t.maxParams} parametri, ` +
+        `disclosure selettiva ${t.canDiscloseSelectively ? "si" : "no"}`
+      );
+    }
   }
 
-  console.log("\nCollego il contratto Membership:", membershipAddress);
-  const tx1 = await registry.addMembershipContract(membershipAddress);
-  await tx1.wait();
-  console.log("addMembershipContract confermato.");
-
-  for (const t of TIER_LIMITS) {
-    const tx = await registry.setTierLimits(
-      membershipAddress,
-      t.tier,
-      t.maxSuppliers,
-      t.maxParams,
-      t.canDiscloseSelectively
-    );
-    await tx.wait();
-    console.log(
-      `Tier ${t.tier} (${t.label}) configurato: ` +
-      `${t.maxSuppliers} fornitori, ${t.maxParams} parametri, ` +
-      `disclosure selettiva ${t.canDiscloseSelectively ? "si" : "no"}`
-    );
+  // -----------------------------------------------------------------
+  // ULTIMO passo, sempre: trasferisco l'ownership dal deployer alla UP
+  // ChainIntegrate. Dopo questa chiamata il deployer NON puo' piu'
+  // chiamare funzioni onlyOwner su questo contratto — solo la UP potra'
+  // farlo da qui in avanti (tramite il proprio Key Manager).
+  // -----------------------------------------------------------------
+  if (ownerAddress.toLowerCase() !== deployer.address.toLowerCase()) {
+    console.log(`\nTrasferisco l'ownership a ${ownerAddress}...`);
+    const txOwnership = await registry.transferOwnership(ownerAddress);
+    await txOwnership.wait();
+    console.log("Ownership trasferita. Il deployer non ha piu' privilegi onlyOwner su questo contratto.");
+  } else {
+    console.warn("\nOwnership NON trasferita: nessun CHAININTEGRATE_OWNER_ADDRESS valido fornito.");
   }
 
   printSummary(registryAddress, membershipAddress);
