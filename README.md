@@ -16,7 +16,9 @@ arriverà un eventuale tier/contratto Diamond).
 ```
 supplier-trust-registry/
 ├── contracts/
-│   └── SupplierRegistry.sol      — contratto principale (LSP8, soulbound)
+│   ├── SupplierRegistry.sol      — contratto principale (LSP8, soulbound)
+│   └── mocks/
+│       └── MockMembership.sol    — SOLO per test locali, mai deployare su LUKSO vera
 ├── frontend/
 │   ├── index.html                — SPA vanilla JS, mini-app per il Grid
 │   └── abi.subset.json           — ABI curata usata da index.html (estratta
@@ -27,13 +29,29 @@ supplier-trust-registry/
 │   ├── pinata.js                 — upload verso Pinata Files API v3
 │   ├── package.json
 │   └── .env.example              — template variabili ambiente (nessun segreto reale)
+├── scripts/
+│   └── deploy.js                 — deploy + configurazione Membership/tier
+├── hardhat.config.js             — reti LUKSO testnet/mainnet + verifica Blockscout
+├── package.json                  — progetto Hardhat (separato da backend/package.json)
+├── .env.example                  — template variabili per il deploy (root)
 ├── LICENSE                       — tutti i diritti riservati, contatto per permessi
 ├── .gitignore
 └── README.md                     — questo file
 ```
 
-Non ancora presenti nel repo: `hardhat.config.js` e script di deploy — arrivano
-nella fase Codespace (vedi "Ordine di lavoro" più sotto).
+---
+
+## Deploy attuale — Testnet (LUKSO chain 4201)
+
+- **SupplierRegistry**: [`0x325f6f9790409DB689cf976BcEEa621DE0606C7C`](https://explorer.execution.testnet.lukso.network/address/0x325f6f9790409DB689cf976BcEEa621DE0606C7C)
+  — deployato, configurato (3 tier collegati alla Membership testnet), ownership
+  trasferita alla UP ChainIntegrate testnet, **sorgente verificato pubblicamente**
+- **Membership collegata (testnet)**: `0x01D0930B375d037FA988b02871812D291cC0131D`
+- **Owner del contratto (UP ChainIntegrate, testnet)**: `0x83cBE526D949A3AaaB4EF9a03E48dd862e81472C`
+  (diversa dalla UP ChainIntegrate **mainnet**, `0x4a2605796e0d91A9667d6E30365aEEC384C48c27`
+  — non confonderle)
+
+Non ancora deployato su mainnet.
 
 ---
 
@@ -60,15 +78,16 @@ né testato con test automatici. Copre:
 - continuità di reputazione tra registri in caso di successione aziendale,
   a doppia conferma (vecchio propone, nuovo accetta)
 
-**Frontend** (`frontend/index.html`) — prima bozza funzionante, sintassi
-verificata (non ancora testata in browser con wallet reale). Palette
-"blueprint" (bianco/blu, ancorata al mondo dei disegni tecnici), IBM Plex
-Sans/Mono, connessione UP via `up-provider`, flusso di mint/schema/fornitori/
-valutazioni, cifratura client-side (PBKDF2 600.000 iterazioni + AES-256-GCM).
-**Non ancora collegato al nuovo flusso di autenticazione del backend** (vedi
-sotto) — `uploadToIPFS()` chiama ancora `/api/ipfs/upload` senza passare da
-`/api/auth/challenge` → firma → `/api/auth/verify` → token. Va sistemato
-nella fase VPS (vedi "Ordine di lavoro").
+**Frontend** (`frontend/index.html`) — palette "blueprint" (bianco/blu,
+ancorata al mondo dei disegni tecnici), IBM Plex Sans/Mono, connessione UP
+via `up-provider`, flusso di mint/schema/fornitori/valutazioni, cifratura
+client-side (PBKDF2 600.000 iterazioni + AES-256-GCM). **Collegato al
+flusso di autenticazione del backend**: `uploadToIPFS()` passa sempre da
+`ensureSession()` (challenge → firma UP → verify → token JWT 30 minuti,
+riusato tra upload finché valido). `CONFIG.REGISTRY_CONTRACT` punta già
+all'indirizzo testnet deployato. Sintassi verificata, **non ancora testato
+in un browser reale con estensione UP collegata** — primo test vero da
+fare in fase VPS.
 
 **Backend** (`backend/`) — Express minimale, due sole responsabilità:
 autenticazione "prova che controlli questa UP" via `isValidSignature`
@@ -81,33 +100,40 @@ il flusso challenge→firma→verifica testato end-to-end con un wallet vero
 permesso SIGN e un RPC vero — non testabile in sandbox). Multer fissato a
 2.x deliberatamente: la 1.x ha vulnerabilità note segnalate da `npm audit`.
 
-### Da completare prima di un deploy reale
+**Contratto e deploy** — vedi sezione "Deploy attuale" sopra. Verificato
+end-to-end (non solo sintatticamente) contro un nodo Hardhat locale reale
+prima del deploy: mint, gating per tier, doppio mint rifiutato, transfer
+ownership. Un bug reale scoperto e corretto durante il deploy: l'ordine
+delle operazioni conta — il contratto va deployato con owner temporaneo
+il deployer, configurato (Membership, tier), e **solo alla fine** trasferito
+alla UP ChainIntegrate. Farlo nell'ordine sbagliato (owner = UP fin dal
+costruttore) rende impossibile configurare qualunque cosa dopo, perché
+nessuna chiave privata di deploy può firmare per conto di una UP.
 
-- `hardhat.config.js` + script di deploy — **fase Codespace**, prossimo passo
-- `CONFIG.REGISTRY_CONTRACT` e `CONFIG.RPC_URL` in `index.html` — dopo il deploy
-- Collegare `index.html` al flusso di autenticazione del backend — **fase VPS**
-- `PINATA_JWT`, `LUKSO_RPC_URL`, `JWT_SECRET` veri in `backend/.env` (mai committato)
-- Verifica empirica dell'import di `@lukso/up-provider` via esm.sh in un
-  browser reale con estensione UP collegata
-- Test automatici (non ancora scritti)
+### Da completare prima del deploy mainnet
+
+- Test reale in browser con estensione UP collegata (fase VPS)
+- `PINATA_JWT`, `LUKSO_RPC_URL` reali (già presente `JWT_SECRET`, `REGISTRY_CONTRACT_ADDRESS`
+  va aggiornato) in `backend/.env` (mai committato)
+- Deploy del backend su VPS con PM2, Nginx che proxy `/api/` verso la porta locale
+- Test automatici (non ancora scritti — `contracts/mocks/MockMembership.sol`
+  già pronto per quello)
 - Decisione finale KDF (PBKDF2 nativo usato per zero dipendenze esterne;
   Argon2id/scrypt restano opzioni se si accetta di aggiungere una libreria)
+- Verificare l'URL Blockscout mainnet per `hardhat verify` prima di fidarsene
+  (dedotto per analogia col pattern testnet, non confermato da fonte ufficiale
+  come invece lo è quello testnet)
 
 ---
 
 ## Ordine di lavoro deciso
 
-1. **Repo** (qui) — struttura, contratto, frontend, backend, README aggiornato ✅
-2. **Codespace** — `hardhat.config.js`, script di deploy, deploy su **testnet**
-   (mai direttamente mainnet per un primo test), configurazione Membership
-   (contratti accettati + limiti per tier) sul contratto appena deployato
-3. **VPS** — collegare `index.html` al backend (auth + upload reale),
-   deploy del backend con PM2, test end-to-end mint → schema → fornitore →
-   valutazione
-
-Non saltare l'ordine senza motivo: il deploy (punto 2) è testabile solo
-in parte senza il punto 3 (mint e definizione schema sì, aggiungere
-fornitori/valutazioni no, perché serve l'upload IPFS funzionante).
+1. **Repo** — struttura, contratto, frontend, backend, README ✅
+2. **Codespace** — `hardhat.config.js`, script di deploy, deploy su **testnet**,
+   configurazione Membership, verifica del sorgente su Blockscout ✅
+3. **VPS** (in corso) — collegare `index.html` al backend (fatto, da testare
+   dal vivo), deploy del backend con PM2, test end-to-end mint → schema →
+   fornitore → valutazione con un'estensione UP reale
 
 ---
 
@@ -130,20 +156,40 @@ riaperti senza motivo** perché già discussi a fondo:
 - LICENSE del repo: "tutti i diritti riservati" deliberato (non un
   dimenticanza) — il vantaggio competitivo è nel frontend/UX con la
   Membership, non nel contratto in sé
+- `@nomicfoundation/hardhat-verify@2.1.3`: l'opzione `etherscan.apiKey` per
+  reti Blockscout **deve** essere un oggetto per-network
+  (`{ luksoTestnet: "..." }`), non una stringa nuda — con una stringa nuda
+  il plugin non risale al `customChains` giusto e prova comunque l'endpoint
+  Etherscan V2 diretto, fallendo con "Missing or unsupported chainid
+  parameter". Scoperto confrontando con la config funzionante di MyCarBook.
+  Se `npx hardhat verify` fallisce di nuovo nonostante questo, il percorso
+  di riserva affidabile è: estrarre `input` da
+  `artifacts/build-info/*.json` e caricarlo manualmente su Blockscout
+  come Standard JSON Input (metodo già usato con successo per il deploy
+  testnet attuale).
 
 ---
 
-## Comandi utili (ambiente Hardhat, da ricreare)
+## Comandi utili
 
+Ambiente Hardhat (root):
 ```bash
-npm install --save @lukso/lsp4-contracts @lukso/lsp8-contracts
-npm install --save-exact @openzeppelin/contracts@4.9.6   # versione richiesta dagli LSP, non l'ultima
-npm install --save-dev hardhat@2 @nomicfoundation/hardhat-toolbox@hh2
+npm install
 npx hardhat compile
+npm run deploy:testnet    # legge .env (root) — vedi .env.example
+npm run deploy:mainnet
 ```
 
-Nota su un conflitto già incontrato: se nel repo finisce anche una versione
-più recente di `@openzeppelin/contracts` per altri motivi, la risoluzione
-delle import Solidity va in conflitto con quanto richiesto dagli LSP
-(`^4.9.6`) — va installata esplicitamente quella versione a livello di
-progetto.
+Backend (`backend/`):
+```bash
+cd backend
+npm install
+cp .env.example .env      # poi compilare con i valori reali
+npm start
+```
+
+Nota su un conflitto già incontrato durante l'installazione: se nel repo
+finisce anche una versione più recente di `@openzeppelin/contracts` per
+altri motivi, la risoluzione delle import Solidity va in conflitto con
+quanto richiesto dagli LSP (`^4.9.6`) — il `package.json` di root la fissa
+già esplicitamente a `4.9.6`, non toccarla senza motivo.

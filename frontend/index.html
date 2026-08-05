@@ -318,7 +318,7 @@ const REGISTRY_ABI_JSON = window.REGISTRY_ABI_JSON;
 const CONFIG = {
   CHAIN_ID: 42, // 42 = LUKSO mainnet, 4201 = testnet
   RPC_URL: "https://42.rpc.thirdweb.com/REPLACE_WITH_CLIENT_ID", // stesso provider gia' in uso per MatchPredictor
-  REGISTRY_CONTRACT: "0x0000000000000000000000000000000000000000", // TODO: indirizzo post-deploy
+  REGISTRY_CONTRACT: "0x325f6f9790409DB689cf976BcEEa621DE0606C7C", // testnet, deployato e verificato
   KDF_ITERATIONS: 600000, // PBKDF2-HMAC-SHA256, raccomandazione OWASP 2023/2025
 };
 
@@ -348,6 +348,8 @@ const state = {
   tokenId: null,          // bytes32(uint256(uint160(contextAccount)))
   isOwner: false,
   cryptoKey: null,        // CryptoKey derivata dal PIN, tenuta solo in memoria di sessione
+  sessionToken: null,     // JWT emesso da /api/auth/verify, valido 30 minuti
+  sessionExpiresAt: 0,
   schemaCache: null,
   suppliersCache: [],
 };
@@ -410,14 +412,75 @@ async function decryptJSON(bytes, key) {
 // (stesso pattern "backend proxy" gia' documentato per gli altri progetti:
 //  la JWT Pinata resta lato server, mai nel frontend)
 // =======================================================================
+// =======================================================================
+// SESSIONE — challenge/firma/verifica stile SIWE contro il backend, prima
+// di ogni upload. Il token dura 30 minuti (vedi backend/auth.js): lo
+// riusiamo finche' e' valido, evitando di far firmare l'utente ad ogni
+// singolo file caricato.
+// =======================================================================
+async function ensureSession() {
+  const MARGIN_MS = 60 * 1000; // rinnova un po' prima della scadenza reale
+  if (state.sessionToken && state.sessionExpiresAt > Date.now() + MARGIN_MS) {
+    return state.sessionToken;
+  }
+
+  const address = state.contextAccount; // la UP proprietaria del registro, non il visitatore
+  const challengeRes = await fetch("/api/auth/challenge", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ address }),
+  });
+  if (!challengeRes.ok) {
+    throw new Error("Impossibile ottenere la challenge di autenticazione dal backend.");
+  }
+  const { message } = await challengeRes.json();
+
+  // Questo fa comparire la richiesta di firma nell'estensione/app UP.
+  const signature = await state.signer.signMessage(message);
+
+  const verifyRes = await fetch("/api/auth/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ address, signature }),
+  });
+  if (!verifyRes.ok) {
+    const body = await verifyRes.json().catch(() => ({}));
+    throw new Error("Autenticazione rifiutata dal backend: " + (body.error || verifyRes.status));
+  }
+
+  const { token } = await verifyRes.json();
+  state.sessionToken = token;
+  state.sessionExpiresAt = Date.now() + 30 * 60 * 1000;
+  return token;
+}
+
+// =======================================================================
+// IPFS / PINATA — passa sempre dal backend con un token di sessione
+// valido. Il backend non vede mai il PIN ne' la chiave, solo byte gia'
+// pronti (cifrati o pubblici) piu' la prova che la UP proprietaria ha
+// autorizzato questa sessione.
+// =======================================================================
 async function uploadToIPFS(bytes) {
-  // TODO: sostituire con la vera chiamata al backend proxy ChainIntegrate.
-  // Il backend riceve SOLO byte gia' cifrati (o gia' pubblici in chiaro se
-  // isPublic=true) e li inoltra a Pinata — non vede mai il PIN ne' la chiave.
+  const token = await ensureSession();
+
   const form = new FormData();
   form.append("file", new Blob([bytes]));
-  const res = await fetch("/api/ipfs/upload", { method: "POST", body: form });
-  if (!res.ok) throw new Error("Upload IPFS fallito");
+
+  const res = await fetch("/api/ipfs/upload", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      // token scaduto/rifiutato a meta' operazione: invalidiamo la sessione
+      // cosi' il prossimo tentativo ne richiede una nuova, ma non ritentiamo
+      // automaticamente qui per non nascondere l'errore all'utente
+      state.sessionToken = null;
+    }
+    throw new Error("Upload IPFS fallito (HTTP " + res.status + ")");
+  }
   const { cid } = await res.json();
   return `ipfs://${cid}`;
 }
