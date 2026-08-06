@@ -327,22 +327,26 @@ const CONFIG = {
 const ABI = REGISTRY_ABI_JSON;
 
 // =======================================================================
-// LIBRERIE — ethers via esm.sh, up-provider via esm.sh
-// (stesso pattern gia' in uso per erc725.js negli altri progetti ChainIntegrate:
-//  il bundle CommonJS su jsDelivr non espone un global nel browser, esm.sh si')
+// LIBRERIE — solo ethers via esm.sh (stesso pattern gia' in uso per
+// erc725.js negli altri progetti ChainIntegrate: il bundle CommonJS su
+// jsDelivr non espone un global nel browser, esm.sh si'). Nessuna libreria
+// up-provider: questa e' una pagina normale, non un mini-app incorporato
+// nel Grid — l'estensione UP inietta window.lukso su qualunque pagina,
+// esattamente come window.ethereum di MetaMask, senza bisogno di alcun
+// iframe "genitore".
 // =======================================================================
 import { ethers } from "https://esm.sh/ethers@6.13.4";
-import { createClientUPProvider } from "https://esm.sh/@lukso/up-provider@0.3.5";
 
 // =======================================================================
 // STATO GLOBALE
 // =======================================================================
 const state = {
-  upProvider: null,
   ethersProvider: null,
   signer: null,
   visitorAccount: null,   // chi ha collegato il wallet (per firmare/pagare gas)
-  contextAccount: null,   // la UP nel cui Grid gira la mini-app (il "proprietario" del contesto)
+  contextAccount: null,   // il registro che si sta visualizzando: il proprio
+                           // per default, oppure quello indicato in ?address=0x...
+                           // nell'URL (per condividere un registro pubblico altrui)
   contract: null,
   contractReadOnly: null,
   tokenId: null,          // bytes32(uint256(uint160(contextAccount)))
@@ -493,28 +497,41 @@ async function fetchFromIPFS(uri) {
 }
 
 // =======================================================================
-// CONNESSIONE UP — up-provider distingue visitorAccount (chi firma) da
-// contextAccount (la UP nel cui Grid gira la mini-app). Il proprietario
-// del Registro e' sempre il contextAccount: e' la UP "titolare" della pagina,
-// non necessariamente chi sta visitando in quel momento.
+// CONNESSIONE UP — pagina normale, nessun Grid/iframe. L'estensione UP
+// inietta window.lukso su qualunque pagina (standard EIP-1193, come
+// window.ethereum di MetaMask). "Quale registro sto guardando" non viene
+// piu' da un contesto di embedding, ma da un parametro URL esplicito
+// (?address=0x...) — se assente, si assume "il proprio registro".
+// Questo permette anche di condividere un link diretto a un registro
+// pubblico altrui, es. supplier-trust-registry.chainintegrate.it/?address=0x...
 // =======================================================================
 async function connect() {
-  state.upProvider = createClientUPProvider();
-  state.ethersProvider = new ethers.BrowserProvider(state.upProvider);
-
-  const accounts = await state.upProvider.request("eth_requestAccounts", []);
-  const contextAccounts = await state.upProvider.request("up_contextAccounts", []);
-
-  state.visitorAccount = accounts[0] || null;
-  state.contextAccount = contextAccounts[0] || null;
-
-  if (!state.contextAccount) {
-    renderError("Impossibile determinare la UP proprietaria di questo contesto (contextAccount vuoto). Apri questa mini-app da dentro il Grid di un profilo.");
+  if (!window.lukso) {
+    renderError(
+      "Nessuna estensione Universal Profile rilevata. Installa la UP Browser " +
+      "Extension per continuare (o, da mobile, apri questa pagina dal browser " +
+      "integrato nella tua app wallet)."
+    );
     return;
   }
 
+  state.ethersProvider = new ethers.BrowserProvider(window.lukso);
+  const accounts = await state.ethersProvider.send("eth_requestAccounts", []);
+  state.visitorAccount = accounts[0] || null;
+
+  if (!state.visitorAccount) {
+    renderError("Nessun account collegato.");
+    return;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const addressParam = params.get("address");
+  state.contextAccount = (addressParam && ethers.isAddress(addressParam))
+    ? ethers.getAddress(addressParam)
+    : state.visitorAccount; // default: il proprio registro
+
   state.signer = await state.ethersProvider.getSigner();
-  state.isOwner = state.visitorAccount?.toLowerCase() === state.contextAccount.toLowerCase();
+  state.isOwner = state.visitorAccount.toLowerCase() === state.contextAccount.toLowerCase();
 
   state.contract = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, ABI, state.signer);
   state.contractReadOnly = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, ABI, state.ethersProvider);
@@ -524,8 +541,10 @@ async function connect() {
   $("btn-connect").textContent = shortAddr(state.visitorAccount) + (state.isOwner ? " (proprietario)" : " (visitatore)");
   $("btn-connect").disabled = true;
 
-  state.upProvider.on("contextAccountsChanged", () => window.location.reload());
-  state.upProvider.on("accountsChanged", () => window.location.reload());
+  if (typeof window.lukso.on === "function") {
+    window.lukso.on("accountsChanged", () => window.location.reload());
+    window.lukso.on("chainChanged", () => window.location.reload());
+  }
 
   await loadRegistry();
 }
