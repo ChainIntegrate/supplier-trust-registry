@@ -188,6 +188,8 @@
     padding: 24px;
     max-width: 420px;
     width: 100%;
+    max-height: 85vh;
+    overflow-y: auto;
     border: 1px solid var(--powder-line);
   }
   .modal h2 { margin-top: 0; font-size: 16px; }
@@ -560,6 +562,17 @@ async function connect() {
   await loadRegistry();
 }
 
+// Contenuto delle valutazioni (criteri, note) puo' finire in innerHTML —
+// e con ?address= chiunque puo' visitare il registro pubblico di un altro,
+// quindi un contenuto malevolo scritto da un proprietario finirebbe
+// eseguito nel browser di un visitatore ignaro. Mai interpolare testo
+// utente in innerHTML senza passare da qui.
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = String(str ?? "");
+  return div.innerHTML;
+}
+
 function shortAddr(addr) {
   if (!addr) return "";
   return addr.slice(0, 6) + "…" + addr.slice(-4);
@@ -783,11 +796,55 @@ async function renderEvaluationsForSupplier(supplierId) {
   container.innerHTML = events.map(ev => {
     const { evaluationId, isPublic, contentHash, supersedes } = ev.args;
     return `
-      <div class="row-between" style="padding:8px 0; border-top:1px solid var(--powder-line);">
-        <span class="mono">#${evaluationId} · ${contentHash.slice(0, 14)}…${supersedes > 0n ? ` (corregge #${supersedes})` : ""}</span>
-        <span class="badge ${isPublic ? "badge-public" : "badge-private"}">${isPublic ? "Pubblica" : "Privata"}</span>
+      <div style="padding:8px 0; border-top:1px solid var(--powder-line);">
+        <div class="row-between">
+          <span class="mono">#${evaluationId} · ${contentHash.slice(0, 14)}…${supersedes > 0n ? ` (corregge #${supersedes})` : ""}</span>
+          <span class="badge ${isPublic ? "badge-public" : "badge-private"}">${isPublic ? "Pubblica" : "Privata"}</span>
+        </div>
+        <div id="eval-detail-${supplierId}-${evaluationId}" style="margin-top:6px;">
+          <span class="muted">Caricamento…</span>
+        </div>
       </div>`;
   }).join("");
+
+  for (const ev of events) {
+    resolveEvaluationContent(supplierId, ev.args);
+  }
+}
+
+// Decifra (se privata e la chiave e' sbloccata) o legge in chiaro (se
+// pubblica) il contenuto vero della valutazione — criteri e note, non
+// solo l'hash. Stessa logica di resolveSupplierName, applicata qui.
+async function resolveEvaluationContent(supplierId, args) {
+  const { evaluationId, uri, isPublic } = args;
+  const el = $(`eval-detail-${supplierId}-${evaluationId}`);
+  if (!el) return;
+
+  if (!isPublic && !state.cryptoKey) {
+    el.innerHTML = `<button class="btn btn-ghost" style="padding:4px 10px; font-size:12px;">Sblocca per vedere</button>`;
+    el.querySelector("button").addEventListener("click", () => {
+      openPinModal(() => resolveEvaluationContent(supplierId, args));
+    });
+    return;
+  }
+
+  try {
+    const bytes = await fetchFromIPFS(uri);
+    const payload = isPublic
+      ? JSON.parse(new TextDecoder().decode(bytes))
+      : await decryptJSON(bytes, state.cryptoKey);
+
+    const criteriHtml = Object.entries(payload.criteri || {})
+      .map(([k, v]) => `<div class="row-between" style="font-size:13px;"><span class="muted">${escapeHtml(k)}</span><strong>${escapeHtml(v)}</strong></div>`)
+      .join("");
+
+    el.innerHTML = `
+      ${criteriHtml}
+      ${payload.note ? `<div class="muted" style="margin-top:4px; font-size:13px;">${escapeHtml(payload.note)}</div>` : ""}
+    `;
+  } catch (e) {
+    el.innerHTML = `<span class="muted">Impossibile leggere il contenuto (${isPublic ? "dato pubblico" : "chiave errata o dato corrotto"}).</span>`;
+  }
 }
 
 // =======================================================================
@@ -923,7 +980,7 @@ async function openEvaluationModal(supplierId) {
   const [paramNames, minValue, maxValue] = await state.contractReadOnly.getSchema(state.tokenId, latestVersion);
 
   $("evaluation-criteria-fields").innerHTML = paramNames.map((p, i) => `
-    <label for="crit-${i}">${p} (${minValue}–${maxValue})</label>
+    <label for="crit-${i}">${escapeHtml(p)} (${minValue}–${maxValue})</label>
     <input type="number" id="crit-${i}" min="${minValue}" max="${maxValue}" value="${minValue}" />
   `).join("");
 
