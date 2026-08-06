@@ -57,10 +57,12 @@ Non ancora deployato su mainnet.
 
 ## Stato attuale
 
-**Contratto** (`contracts/SupplierRegistry.sol`) — scheletro completo, compila
-pulito contro `@lukso/lsp8-contracts@0.18.1` / `@lukso/lsp4-contracts@0.17.3`,
-sotto il limite EIP-170 con optimizer `runs: 1` (~18,7 KB). Non ancora deployato
-né testato con test automatici. Copre:
+**Contratto** (`contracts/SupplierRegistry.sol`) — deployato su testnet (vedi
+sopra), compila pulito contro `@lukso/lsp8-contracts@0.18.1` /
+`@lukso/lsp4-contracts@0.17.3`, sotto il limite EIP-170 con optimizer
+`runs: 1` (~18,7 KB). Verificato end-to-end contro un nodo Hardhat locale
+reale prima del deploy (mint, gating per tier, doppio mint rifiutato,
+transfer ownership) e ora anche **in produzione con dati reali**. Copre:
 
 - mint self-service del Registro, gated da Membership (multi-contratto,
   limiti configurabili per `(contratto, tier)` senza bisogno di redeploy)
@@ -70,8 +72,7 @@ né testato con test automatici. Copre:
   storage — stesso pattern `eth_getLogs` già in uso in MatchPredictor)
 - privacy **per singola valutazione** (hash on-chain sempre, contenuto dietro
   un puntatore IPFS che risolve a cifrato o in chiaro) e **per nome fornitore**
-  (stesso meccanismo, corretto rispetto alla prima bozza che scriveva il nome
-  in chiaro nell'evento)
+  (stesso meccanismo)
 - correzione errori via `supersedes` (append-only, storico mai perso)
 - disclosure selettiva (feature Gold) con prova on-chain, cifratura re-key
   interamente client-side
@@ -79,43 +80,64 @@ né testato con test automatici. Copre:
   a doppia conferma (vecchio propone, nuovo accetta)
 
 **Frontend** (`frontend/index.html`) — palette "blueprint" (bianco/blu,
-ancorata al mondo dei disegni tecnici), IBM Plex Sans/Mono, connessione UP
-via `up-provider`, flusso di mint/schema/fornitori/valutazioni, cifratura
-client-side (PBKDF2 600.000 iterazioni + AES-256-GCM). **Collegato al
-flusso di autenticazione del backend**: `uploadToIPFS()` passa sempre da
-`ensureSession()` (challenge → firma UP → verify → token JWT 30 minuti,
-riusato tra upload finché valido). `CONFIG.REGISTRY_CONTRACT` punta già
-all'indirizzo testnet deployato. Sintassi verificata, **non ancora testato
-in un browser reale con estensione UP collegata** — primo test vero da
-fare in fase VPS.
+ancorata al mondo dei disegni tecnici), IBM Plex Sans/Mono. **Non usa
+`up-provider`**: pagina standalone, connessione via `window.lukso`
+(iniettato dalla UP Browser Extension su qualunque pagina, come
+`window.ethereum` di MetaMask) — `up-provider` richiede l'incorporamento
+in un iframe dentro il Grid di universaleverything.io, incompatibile con
+l'uso come sito normale. Il registro da visualizzare viene da `?address=`
+nell'URL, o dal proprio indirizzo per default — permette anche di
+condividere un link diretto a un registro pubblico altrui.
 
-**Backend** (`backend/`) — Express minimale, due sole responsabilità:
-autenticazione "prova che controlli questa UP" via `isValidSignature`
-on-chain (stesso principio del SIWE documentato da LUKSO), e inoltro verso
-Pinata Files API v3 (l'endpoint attuale, non il legacy `/pinning/pinFileToIPFS`
-che si trova ancora in molti tutorial vecchi). Non cifra mai nulla, non vede
-mai un PIN. Verificato in locale: il server parte, tutte le rotte rispondono,
-il flusso challenge→firma→verifica testato end-to-end con un wallet vero
-(manca solo il test del percorso di successo, che richiede una UP reale con
-permesso SIGN e un RPC vero — non testabile in sandbox). Multer fissato a
-2.x deliberatamente: la 1.x ha vulnerabilità note segnalate da `npm audit`.
+Flusso completo testato dal vivo, con dati reali, su più dispositivi:
+mint → definizione schema → fornitore (pubblico e privato) → valutazione
+(pubblica e privata) → lettura e decifratura confermata **indipendentemente**
+(un file cifrato scaricato da IPFS decifrato con successo in uno script
+Node separato, stessa logica PBKDF2+AES-GCM del browser). Cifratura
+client-side confermata **coerente tra dispositivi diversi** (stesso PIN,
+stessa chiave, ovunque — proprio l'obiettivo per cui si era scartata la
+derivazione da firma wallet in fase di progettazione).
 
-**Contratto e deploy** — vedi sezione "Deploy attuale" sopra. Verificato
-end-to-end (non solo sintatticamente) contro un nodo Hardhat locale reale
-prima del deploy: mint, gating per tier, doppio mint rifiutato, transfer
-ownership. Un bug reale scoperto e corretto durante il deploy: l'ordine
-delle operazioni conta — il contratto va deployato con owner temporaneo
-il deployer, configurato (Membership, tier), e **solo alla fine** trasferito
-alla UP ChainIntegrate. Farlo nell'ordine sbagliato (owner = UP fin dal
-costruttore) rende impossibile configurare qualunque cosa dopo, perché
-nessuna chiave privata di deploy può firmare per conto di una UP.
+**Backend** (`backend/`) — Express minimale, deployato su VPS con PM2
+(`supplier-trust-registry-backend`, porta 3011) dietro Nginx
+(`supplier-trust-registry.chainintegrate.it`, proxy su `/api/`, certificato
+Let's Encrypt). Due sole responsabilità: autenticazione "prova che controlli
+questa UP" via `isValidSignature` on-chain (stesso principio del SIWE
+documentato da LUKSO), e inoltro verso Pinata Files API v3. Non cifra mai
+nulla, non vede mai un PIN. Multer fissato a 2.x deliberatamente (la 1.x
+ha vulnerabilità note).
+
+### Lezioni dal primo test dal vivo
+
+Problemi reali trovati e corretti portando tutto in produzione — vale la
+pena non riscoprirli:
+
+- **`up-provider` richiede il Grid**: "No UP found" aprendo l'URL
+  direttamente non è un bug, è il comportamento corretto per una libreria
+  pensata per girare in iframe dentro universaleverything.io. Per un sito
+  standalone serve `window.lukso` (EIP-1193 standard), non `up-provider`.
+- **Express dietro Nginx senza `trust proxy`**: `express-rate-limit`
+  rifiuta silenziosamente le richieste quando rileva `X-Forwarded-For` ma
+  Express non si fida del proxy — la richiesta resta appesa finché Nginx
+  non va in timeout e risponde 502. Serve `app.set("trust proxy", 1)`
+  per qualunque Express dietro reverse proxy locale.
+- **`gateway.pinata.cloud` non esiste più** come dominio pubblico
+  condiviso — Pinata è passata a gateway dedicati per-account
+  (`<nome>.mypinata.cloud`, visibile nella dashboard Pinata → Gateways).
+- **Chain id testnet è 4201, non 42** — 42 è mainnet. Facile confondersi
+  copiando configurazioni pensate per mainnet (es. URL RPC thirdweb).
+- **Il codice segreto va richiesto solo quando serve davvero** — non ad
+  ogni apertura di un modale, solo al momento di cifrare qualcosa di
+  privato. Un fornitore/valutazione pubblica non deve mai chiederlo.
+- **Contenuto utente in `innerHTML` va sempre passato da `escapeHtml()`**
+  — con `?address=` che permette a chiunque di visitare un registro
+  pubblico altrui, un nome criterio o una nota non innocua scritta dal
+  proprietario diventerebbe eseguibile nel browser di un visitatore
+  ignaro. Non è un rischio teorico una volta che il contenuto può essere
+  letto da chi non l'ha scritto.
 
 ### Da completare prima del deploy mainnet
 
-- Test reale in browser con estensione UP collegata (fase VPS)
-- `PINATA_JWT`, `LUKSO_RPC_URL` reali (già presente `JWT_SECRET`, `REGISTRY_CONTRACT_ADDRESS`
-  va aggiornato) in `backend/.env` (mai committato)
-- Deploy del backend su VPS con PM2, Nginx che proxy `/api/` verso la porta locale
 - Test automatici (non ancora scritti — `contracts/mocks/MockMembership.sol`
   già pronto per quello)
 - Decisione finale KDF (PBKDF2 nativo usato per zero dipendenze esterne;
@@ -123,6 +145,9 @@ nessuna chiave privata di deploy può firmare per conto di una UP.
 - Verificare l'URL Blockscout mainnet per `hardhat verify` prima di fidarsene
   (dedotto per analogia col pattern testnet, non confermato da fonte ufficiale
   come invece lo è quello testnet)
+- Rivedere `express-rate-limit` con `trust proxy` attivo: i limiti sono
+  tarati per singolo IP reale, verificare che restino sensati con Nginx
+  in mezzo
 
 ---
 
@@ -131,9 +156,12 @@ nessuna chiave privata di deploy può firmare per conto di una UP.
 1. **Repo** — struttura, contratto, frontend, backend, README ✅
 2. **Codespace** — `hardhat.config.js`, script di deploy, deploy su **testnet**,
    configurazione Membership, verifica del sorgente su Blockscout ✅
-3. **VPS** (in corso) — collegare `index.html` al backend (fatto, da testare
-   dal vivo), deploy del backend con PM2, test end-to-end mint → schema →
-   fornitore → valutazione con un'estensione UP reale
+3. **VPS** — backend deployato con PM2 + Nginx, frontend collegato,
+   flusso completo testato dal vivo con dati reali (mint → schema →
+   fornitore → valutazione → decifratura) ✅
+
+Prossimo: hardening (test automatici, rate limiting da rivedere con
+`trust proxy`), poi eventuale deploy mainnet.
 
 ---
 
