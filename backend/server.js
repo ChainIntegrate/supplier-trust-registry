@@ -46,6 +46,12 @@ for (const [name, value] of Object.entries({ JWT_SECRET, PINATA_JWT, LUKSO_RPC_U
 const rpcProvider = new ethers.JsonRpcProvider(LUKSO_RPC_URL);
 
 const app = express();
+// Il backend gira sempre dietro Nginx (reverse proxy sulla stessa VPS).
+// Senza questa riga, Express non si fida dell'header X-Forwarded-For che
+// Nginx inoltra correttamente, ed express-rate-limit rifiuta la richiesta
+// con un'eccezione non gestita — la richiesta resta appesa finche' Nginx
+// non va in timeout e risponde 502 al client, invece di un errore chiaro.
+app.set("trust proxy", 1);
 app.use(cors({ origin: process.env.FRONTEND_URL }));
 app.use(express.json());
 
@@ -98,6 +104,10 @@ app.post("/api/auth/verify", authLimiter, async (req, res) => {
 
   const result = await verifyChallenge({ address, signature, rpcProvider });
   if (!result.ok) {
+    console.warn(
+      `[auth/verify] rifiutato per ${address}: ${result.reason}` +
+      (result.detail ? ` (${result.detail})` : "")
+    );
     return res.status(401).json({ error: result.reason });
   }
 
