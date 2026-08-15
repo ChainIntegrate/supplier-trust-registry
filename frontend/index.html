@@ -182,6 +182,10 @@
     padding: 20px;
   }
   .modal-backdrop.open { display: flex; }
+  /* Il modale PIN puo' essere aperto MENTRE un altro modale (fornitore,
+     valutazione) e' ancora aperto sotto — deve sempre vincere lui, altrimenti
+     resta coperto e invisibile, e sembra che l'app si sia bloccata. */
+  #pin-modal { z-index: 200; }
   .modal {
     background: white;
     border-radius: var(--radius);
@@ -292,6 +296,17 @@
 
     <label for="evaluation-date">Data a cui si riferisce la valutazione</label>
     <input type="date" id="evaluation-date" />
+
+    <div id="evaluation-document-row" style="display:none;">
+      <label for="evaluation-document">Documento allegato (opzionale)</label>
+      <input type="file" id="evaluation-document" />
+      <div class="muted" style="font-size:12px; margin-top:4px;">
+        Segue la stessa scelta pubblico/privato di questa valutazione.
+      </div>
+    </div>
+    <div id="evaluation-document-locked" class="muted" style="font-size:12px; display:none;">
+      Allegare un documento richiede la Membership Gold.
+    </div>
 
     <label for="evaluation-note">Note</label>
     <textarea id="evaluation-note" rows="3" placeholder="Osservazioni facoltative"></textarea>
@@ -407,24 +422,37 @@ async function deriveKey(pin, ownerAddress, contractAddress) {
   );
 }
 
-async function encryptJSON(obj, key) {
+// Primitive a livello di byte — funzionano su qualunque contenuto binario,
+// non solo JSON. Un documento allegato usa queste direttamente; il JSON
+// di criteri/note passa dagli stessi wrapper di sempre, comportamento
+// identico a prima.
+async function encryptBytes(plainBytes, key) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const plaintext = new TextEncoder().encode(JSON.stringify(obj));
-  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext);
+  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plainBytes);
   // formato caricato: iv (12 byte) + ciphertext+tag (GCM li concatena gia')
   const bytes = new Uint8Array(iv.length + ciphertext.byteLength);
   bytes.set(iv, 0);
   bytes.set(new Uint8Array(ciphertext), iv.length);
 
-  const contentHash = ethers.keccak256(plaintext);
+  const contentHash = ethers.keccak256(plainBytes);
   return { bytes, contentHash };
 }
 
-async function decryptJSON(bytes, key) {
+async function decryptBytes(bytes, key) {
   const iv = bytes.slice(0, 12);
   const ciphertext = bytes.slice(12);
   const plaintextBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
-  return JSON.parse(new TextDecoder().decode(plaintextBuf));
+  return new Uint8Array(plaintextBuf);
+}
+
+async function encryptJSON(obj, key) {
+  const plaintext = new TextEncoder().encode(JSON.stringify(obj));
+  return encryptBytes(plaintext, key);
+}
+
+async function decryptJSON(bytes, key) {
+  const plainBytes = await decryptBytes(bytes, key);
+  return JSON.parse(new TextDecoder().decode(plainBytes));
 }
 
 // =======================================================================
@@ -621,20 +649,29 @@ async function renderMintScreen() {
       <h3>Nessun Registro ancora mintato</h3>
       <p class="muted">Limiti attuali in base alla tua Membership: fino a ${maxSuppliers} fornitori.</p>
       ${state.isOwner
-        ? `<button class="btn" id="btn-mint" style="margin-top:12px;">Minta il tuo Registro</button>`
+        ? `<button class="btn" id="btn-mint" style="margin-top:12px;">Minta il tuo Registro</button>
+           <div id="mint-status" class="muted" style="margin-top:10px;"></div>`
         : `<p class="muted">Solo la UP proprietaria di questo contesto può mintare il Registro.</p>`}
     </div>`;
 
   if (state.isOwner) {
     $("btn-mint").addEventListener("click", async () => {
-      setStatus("Conferma la transazione dal tuo wallet…");
+      const btn = $("btn-mint");
+      const status = $("mint-status");
+      btn.disabled = true;
+      btn.textContent = "Conferma dal wallet…";
+      status.textContent = "Apri l'estensione/app UP per confermare la firma.";
       try {
         const tx = await state.contract.mintRegistry();
-        setStatus("Transazione inviata, in attesa di conferma…");
+        btn.textContent = "Transazione in corso…";
+        status.textContent = "Transazione inviata, in attesa di conferma on-chain — può richiedere qualche secondo.";
         await tx.wait();
+        status.textContent = "Registro mintato, apertura in corso…";
         await loadRegistry();
       } catch (e) {
-        renderError(explainRevert(e));
+        status.textContent = explainRevert(e);
+        btn.disabled = false;
+        btn.textContent = "Minta il tuo Registro";
       }
     });
   }
@@ -870,7 +907,29 @@ async function resolveEvaluationContent(supplierId, args) {
       ${payload.data ? `<div class="muted" style="font-size:12px;">Riferita al ${escapeHtml(formatDateITA(payload.data))}</div>` : ""}
       ${criteriHtml}
       ${payload.note ? `<div class="muted" style="margin-top:4px; font-size:13px;">${escapeHtml(payload.note)}</div>` : ""}
+      ${payload.document ? `<button class="btn btn-ghost" id="doc-btn-${supplierId}-${evaluationId}" style="margin-top:6px; padding:4px 10px; font-size:12px;">📎 ${escapeHtml(payload.document.name)}</button>` : ""}
     `;
+
+    if (payload.document) {
+      $(`doc-btn-${supplierId}-${evaluationId}`).addEventListener("click", async (e) => {
+        const btn = e.target;
+        const originalText = btn.textContent;
+        btn.textContent = "Scaricamento…";
+        btn.disabled = true;
+        try {
+          const docBytes = await fetchFromIPFS(payload.document.uri);
+          const finalBytes = isPublic ? docBytes : await decryptBytes(docBytes, state.cryptoKey);
+          const blob = new Blob([finalBytes], { type: payload.document.type || "application/octet-stream" });
+          const blobUrl = URL.createObjectURL(blob);
+          window.open(blobUrl, "_blank");
+        } catch (err) {
+          btn.textContent = "Errore nell'apertura";
+          return;
+        }
+        btn.textContent = originalText;
+        btn.disabled = false;
+      });
+    }
   } catch (e) {
     el.innerHTML = `<span class="muted">Impossibile leggere il contenuto (${isPublic ? "dato pubblico" : "chiave errata o dato corrotto"}).</span>`;
   }
@@ -1019,6 +1078,15 @@ async function openEvaluationModal(supplierId) {
   // valutazioni passate (es. importare uno storico), non solo quelle fatte
   // nel momento in cui si preme il pulsante.
   $("evaluation-date").value = new Date().toISOString().slice(0, 10);
+  $("evaluation-document").value = "";
+
+  // Allegato documentale: solo Gold. Riuso canDiscloseSelectively come
+  // segnale "sei Gold" invece di introdurre un terzo concetto — e' lo
+  // stesso flag gia' usato per la disclosure selettiva.
+  const [, , canDiscloseSelectively] = await state.contractReadOnly.getEffectiveLimits(state.contextAccount);
+  $("evaluation-document-row").style.display = canDiscloseSelectively ? "block" : "none";
+  $("evaluation-document-locked").style.display = canDiscloseSelectively ? "none" : "block";
+
   $("evaluation-modal").classList.add("open");
 }
 $("evaluation-cancel").addEventListener("click", () => $("evaluation-modal").classList.remove("open"));
@@ -1063,6 +1131,24 @@ async function submitEvaluation() {
 
   $("evaluation-status").textContent = "Cifratura e upload in corso…";
   try {
+    // Documento allegato (Gold): stessa scelta pubblico/privato della
+    // valutazione, stesso meccanismo di cifratura, solo su byte grezzi
+    // invece che su JSON.
+    const fileInput = $("evaluation-document");
+    if (fileInput.files && fileInput.files[0]) {
+      const file = fileInput.files[0];
+      const fileBytes = new Uint8Array(await file.arrayBuffer());
+      let docUri, docHash;
+      if (isPublic) {
+        docHash = ethers.keccak256(fileBytes);
+        docUri = await uploadToIPFS(fileBytes);
+      } else {
+        const { bytes, contentHash } = await encryptBytes(fileBytes, state.cryptoKey);
+        docHash = contentHash;
+        docUri = await uploadToIPFS(bytes);
+      }
+      payload.document = { uri: docUri, hash: docHash, name: file.name, type: file.type, size: file.size };
+    }
     let uri, contentHash;
     if (isPublic) {
       const plaintext = new TextEncoder().encode(JSON.stringify(payload));
@@ -1084,6 +1170,7 @@ async function submitEvaluation() {
     $("evaluation-note").value = "";
     $("evaluation-public-toggle").checked = false;
     $("evaluation-public-warning").style.display = "none";
+    $("evaluation-document").value = "";
     await renderEvaluationsForSupplier(currentSupplierId);
   } catch (e) {
     $("evaluation-status").textContent = explainRevert(e);

@@ -27,7 +27,14 @@ const PORT = process.env.PORT || 3010;
 const JWT_SECRET = process.env.JWT_SECRET;
 const PINATA_JWT = process.env.PINATA_JWT;
 const LUKSO_RPC_URL = process.env.LUKSO_RPC_URL;
-const MAX_UPLOAD_BYTES = parseInt(process.env.MAX_UPLOAD_BYTES || "2097152", 10);
+const REGISTRY_CONTRACT_ADDRESS = process.env.REGISTRY_CONTRACT_ADDRESS;
+const MAX_UPLOAD_BYTES = parseInt(process.env.MAX_UPLOAD_BYTES || "10485760", 10); // 10 MB
+// Sotto questa soglia, qualunque tier puo' caricare (JSON di criteri/note,
+// piccoli per natura). Sopra, serve Gold — verificato qui sul server, non
+// solo nascosto/mostrato lato interfaccia: senza questo controllo, chiunque
+// sapesse chiamare l'endpoint direttamente potrebbe aggirare il limite
+// mostrato nella UI.
+const FREE_UPLOAD_BYTES = parseInt(process.env.FREE_UPLOAD_BYTES || "307200", 10); // 300 KB
 const CHALLENGE_DOMAIN = (() => {
   try {
     return new URL(process.env.FRONTEND_URL).host;
@@ -36,7 +43,7 @@ const CHALLENGE_DOMAIN = (() => {
   }
 })();
 
-for (const [name, value] of Object.entries({ JWT_SECRET, PINATA_JWT, LUKSO_RPC_URL })) {
+for (const [name, value] of Object.entries({ JWT_SECRET, PINATA_JWT, LUKSO_RPC_URL, REGISTRY_CONTRACT_ADDRESS })) {
   if (!value) {
     console.error(`Variabile ambiente mancante: ${name}. Controlla .env (vedi .env.example).`);
     process.exit(1);
@@ -44,6 +51,13 @@ for (const [name, value] of Object.entries({ JWT_SECRET, PINATA_JWT, LUKSO_RPC_U
 }
 
 const rpcProvider = new ethers.JsonRpcProvider(LUKSO_RPC_URL);
+
+// Solo la funzione di lettura che serve qui — niente ABI completa da
+// mantenere sincronizzata col contratto, un frammento minimo e stabile.
+const REGISTRY_LIMITS_ABI = [
+  "function getEffectiveLimits(address account) view returns (uint256 maxSuppliers, uint256 maxParams, bool canDiscloseSelectively)",
+];
+const registryContract = new ethers.Contract(REGISTRY_CONTRACT_ADDRESS, REGISTRY_LIMITS_ABI, rpcProvider);
 
 const app = express();
 // Il backend gira sempre dietro Nginx (reverse proxy sulla stessa VPS).
@@ -128,6 +142,19 @@ app.post(
     if (!req.file) {
       return res.status(400).json({ error: "missing_file" });
     }
+
+    if (req.file.size > FREE_UPLOAD_BYTES) {
+      try {
+        const [, , canDiscloseSelectively] = await registryContract.getEffectiveLimits(req.upAddress);
+        if (!canDiscloseSelectively) {
+          return res.status(403).json({ error: "gold_tier_required_for_large_upload" });
+        }
+      } catch (e) {
+        console.error("Verifica tier fallita:", e.message);
+        return res.status(502).json({ error: "tier_check_failed" });
+      }
+    }
+
     try {
       const filename = `${req.upAddress}-${Date.now()}`;
       const cid = await uploadBufferToPinata(
