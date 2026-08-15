@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Admin — Supplier Trust Registry — ChainIntegrate</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+<style>
+  /* Stessa palette "blueprint" di index.html — vedi quel file per la
+     discussione sulla scelta cromatica, qui solo il token system. */
+  :root {
+    --paper: #FAFBFC;
+    --blueprint: #1D5C9E;
+    --blueprint-dark: #164A80;
+    --powder: #E8F1FA;
+    --powder-line: #C9DDF0;
+    --ink: #16232E;
+    --ink-soft: #52657A;
+    --amber: #C77B2E;
+    --amber-soft: #FBEEE0;
+    --radius: 6px;
+    --font-display: 'IBM Plex Sans', sans-serif;
+    --font-mono: 'IBM Plex Mono', monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: var(--font-display); font-size: 15px; line-height: 1.5;
+    background-image: linear-gradient(var(--powder-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--powder-line) 1px, transparent 1px);
+    background-size: 28px 28px; background-attachment: fixed;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 28px; background: rgba(250, 251, 252, 0.9);
+    border-bottom: 1px solid var(--powder-line);
+  }
+  .wordmark { font-weight: 700; font-size: 17px; }
+  .wordmark span { color: var(--blueprint); }
+  main { max-width: 820px; margin: 0 auto; padding: 32px 20px 80px; }
+  .btn {
+    font-family: var(--font-display); font-weight: 600; font-size: 14px;
+    border: 1px solid var(--blueprint); background: var(--blueprint); color: white;
+    padding: 9px 16px; border-radius: var(--radius); cursor: pointer;
+  }
+  .btn:hover { background: var(--blueprint-dark); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-ghost { background: transparent; color: var(--blueprint); }
+  .btn-ghost:hover { background: var(--powder); }
+  .btn-danger { border-color: #B03A2E; background: #B03A2E; }
+  .btn-danger:hover { background: #8E2E24; }
+  .card {
+    background: white; border: 1px solid var(--powder-line); border-radius: var(--radius);
+    padding: 20px; margin-bottom: 16px;
+  }
+  .card h2 { margin: 0 0 4px; font-size: 16px; }
+  .card h3 { margin: 0 0 4px; font-size: 14px; }
+  .muted { color: var(--ink-soft); font-size: 13px; }
+  .mono { font-family: var(--font-mono); font-size: 12px; color: var(--ink-soft); word-break: break-all; }
+  input[type="text"], input[type="number"] {
+    font-family: var(--font-display); font-size: 14px; padding: 8px 10px;
+    border: 1px solid var(--powder-line); border-radius: var(--radius);
+    width: 100%; background: white; color: var(--ink);
+  }
+  label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; margin-top: 10px; }
+  label:first-child { margin-top: 0; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .row-between { display: flex; justify-content: space-between; align-items: center; }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+  .checkbox-row input { width: auto; }
+  .divider { border: none; border-top: 1px solid var(--powder-line); margin: 14px 0; }
+  .empty-state { text-align: center; padding: 32px 20px; color: var(--ink-soft); }
+  .status-line { font-size: 13px; margin-top: 8px; min-height: 18px; }
+  .status-line.error { color: #B03A2E; }
+  .status-line.ok { color: #1D8A4E; }
+  .warning-box {
+    background: var(--amber-soft); border: 1px solid var(--amber); border-radius: var(--radius);
+    padding: 12px 14px; font-size: 13px; color: #7A4A17; margin-bottom: 16px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wordmark">ChainIntegrate <span>·</span> Supplier Trust Registry — Admin</div>
+  <button class="btn" id="btn-connect">Connetti Universal Profile</button>
+</header>
+
+<main id="app-root">
+  <div class="empty-state">In attesa di connessione…</div>
+</main>
+
+<script>
+  window.REGISTRY_ABI_JSON = [{"inputs":[],"name":"ERC725Y_DataKeysValuesEmptyArray","type":"error"},{"inputs":[],"name":"ERC725Y_DataKeysValuesLengthMismatch","type":"error"},{"inputs":[],"name":"ERC725Y_MsgValueDisallowed","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"supplierId","type":"uint256"},{"internalType":"uint256","name":"evaluationId","type":"uint256"}],"name":"EvaluationDoesNotExist","type":"error"},{"inputs":[{"internalType":"bytes","name":"storedData","type":"bytes"}],"name":"InvalidExtensionAddress","type":"error"},{"inputs":[{"internalType":"bytes","name":"data","type":"bytes"}],"name":"InvalidFunctionSelector","type":"error"},{"inputs":[],"name":"LSP4TokenNameNotEditable","type":"error"},{"inputs":[],"name":"LSP4TokenSymbolNotEditable","type":"error"},{"inputs":[],"name":"LSP4TokenTypeNotEditable","type":"error"},{"inputs":[{"internalType":"uint256","name":"callIndex","type":"uint256"}],"name":"LSP8BatchCallFailed","type":"error"},{"inputs":[],"name":"LSP8CannotSendToAddressZero","type":"error"},{"inputs":[],"name":"LSP8CannotUseAddressZeroAsOperator","type":"error"},{"inputs":[],"name":"LSP8InvalidTransferBatch","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"LSP8NonExistentTokenId","type":"error"},{"inputs":[{"internalType":"address","name":"operator","type":"address"},{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"LSP8NonExistingOperator","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"address","name":"caller","type":"address"}],"name":"LSP8NotTokenOperator","type":"error"},{"inputs":[{"internalType":"address","name":"tokenOwner","type":"address"},{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"address","name":"caller","type":"address"}],"name":"LSP8NotTokenOwner","type":"error"},{"inputs":[{"internalType":"address","name":"tokenReceiver","type":"address"}],"name":"LSP8NotifyTokenReceiverContractMissingLSP1Interface","type":"error"},{"inputs":[{"internalType":"address","name":"tokenReceiver","type":"address"}],"name":"LSP8NotifyTokenReceiverIsEOA","type":"error"},{"inputs":[{"internalType":"address","name":"operator","type":"address"},{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"LSP8OperatorAlreadyAuthorized","type":"error"},{"inputs":[{"internalType":"address","name":"caller","type":"address"},{"internalType":"address","name":"tokenOwner","type":"address"},{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"LSP8RevokeOperatorNotAuthorized","type":"error"},{"inputs":[],"name":"LSP8TokenContractCannotHoldValue","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"LSP8TokenIdAlreadyMinted","type":"error"},{"inputs":[],"name":"LSP8TokenIdFormatNotEditable","type":"error"},{"inputs":[],"name":"LSP8TokenIdsDataEmptyArray","type":"error"},{"inputs":[],"name":"LSP8TokenIdsDataLengthMismatch","type":"error"},{"inputs":[],"name":"LSP8TokenOwnerCannotBeOperator","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"address","name":"oldOwner","type":"address"},{"internalType":"address","name":"newOwner","type":"address"}],"name":"LSP8TokenOwnerChanged","type":"error"},{"inputs":[{"internalType":"bytes4","name":"functionSelector","type":"bytes4"}],"name":"NoExtensionFoundForFunctionSelector","type":"error"},{"inputs":[{"internalType":"bytes32","name":"oldTokenId","type":"bytes32"}],"name":"NoPendingSuccessionProposal","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"address","name":"caller","type":"address"}],"name":"NotRegistryOwner","type":"error"},{"inputs":[],"name":"OwnableCannotSetZeroAddressAsOwner","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"limit","type":"uint256"}],"name":"ParamLimitReached","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"RegistryDoesNotExist","type":"error"},{"inputs":[{"internalType":"address","name":"account","type":"address"},{"internalType":"uint256","name":"limit","type":"uint256"}],"name":"RegistryLimitReached","type":"error"},{"inputs":[],"name":"RegistryNotTransferable","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"version","type":"uint256"}],"name":"SchemaVersionDoesNotExist","type":"error"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"SelectiveDisclosureNotAllowed","type":"error"},{"inputs":[{"internalType":"bytes32","name":"newTokenId","type":"bytes32"}],"name":"SuccessorAlreadySet","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"supplierId","type":"uint256"}],"name":"SupplierDoesNotExist","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"limit","type":"uint256"}],"name":"SupplierLimitReached","type":"error"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"membershipContract","type":"address"}],"name":"MembershipContractAdded","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"membershipContract","type":"address"}],"name":"MembershipContractRemoved","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"membershipContract","type":"address"},{"indexed":true,"internalType":"uint8","name":"tier","type":"uint8"},{"indexed":false,"internalType":"uint256","name":"maxSuppliers","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"maxParams","type":"uint256"},{"indexed":false,"internalType":"bool","name":"canDiscloseSelectively","type":"bool"},{"indexed":false,"internalType":"uint256","name":"maxRegistries","type":"uint256"}],"name":"TierLimitsSet","type":"event"},{"inputs":[{"internalType":"address","name":"membershipContract","type":"address"}],"name":"addMembershipContract","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"","type":"address"}],"name":"isAcceptedMembershipContract","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"owner","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"membershipContract","type":"address"}],"name":"removeMembershipContract","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"membershipContract","type":"address"},{"internalType":"uint8","name":"tier","type":"uint8"},{"internalType":"uint256","name":"maxSuppliers","type":"uint256"},{"internalType":"uint256","name":"maxParams","type":"uint256"},{"internalType":"bool","name":"canDiscloseSelectively","type":"bool"},{"internalType":"uint256","name":"maxRegistries","type":"uint256"}],"name":"setTierLimits","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"","type":"address"},{"internalType":"uint8","name":"","type":"uint8"}],"name":"tierLimits","outputs":[{"internalType":"uint256","name":"maxSuppliers","type":"uint256"},{"internalType":"uint256","name":"maxParams","type":"uint256"},{"internalType":"bool","name":"canDiscloseSelectively","type":"bool"},{"internalType":"uint256","name":"maxRegistries","type":"uint256"},{"internalType":"bool","name":"configured","type":"bool"}],"stateMutability":"view","type":"function"}];
+</script>
+<script type="module">
+const REGISTRY_ABI_JSON = window.REGISTRY_ABI_JSON;
+
+// =======================================================================
+// CONFIGURAZIONE — questo pannello parla con la V2 (multi-registro).
+// Aggiornare REGISTRY_CONTRACT subito dopo il deploy di scripts/deploy-v2.js.
+// =======================================================================
+const CONFIG = {
+  REGISTRY_CONTRACT: "0x0000000000000000000000000000000000000000", // TODO: indirizzo dopo deploy V2
+};
+
+import { ethers } from "https://esm.sh/ethers@6.13.4";
+
+const state = {
+  ethersProvider: null,
+  signer: null,
+  connectedAddress: null,
+  contract: null,
+  contractReadOnly: null,
+  isOwner: false,
+};
+
+const $ = (id) => document.getElementById(id);
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = String(str ?? "");
+  return div.innerHTML;
+}
+
+function shortAddr(addr) {
+  if (!addr) return "";
+  return addr.slice(0, 6) + "…" + addr.slice(-4);
+}
+
+// =======================================================================
+// CONNESSIONE — stesso pattern di index.html, window.lukso diretto,
+// nessun up-provider (pagina standalone, non un mini-app da Grid).
+// =======================================================================
+async function connect() {
+  if (!window.lukso) {
+    renderError("Nessuna estensione Universal Profile rilevata.");
+    return;
+  }
+  state.ethersProvider = new ethers.BrowserProvider(window.lukso);
+  const accounts = await state.ethersProvider.send("eth_requestAccounts", []);
+  state.connectedAddress = accounts[0] || null;
+  if (!state.connectedAddress) {
+    renderError("Nessun account collegato.");
+    return;
+  }
+
+  state.signer = await state.ethersProvider.getSigner();
+  state.contract = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, REGISTRY_ABI_JSON, state.signer);
+  state.contractReadOnly = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, REGISTRY_ABI_JSON, state.ethersProvider);
+
+  const owner = await state.contractReadOnly.owner();
+  state.isOwner = owner.toLowerCase() === state.connectedAddress.toLowerCase();
+
+  $("btn-connect").textContent = shortAddr(state.connectedAddress);
+  $("btn-connect").disabled = true;
+
+  if (typeof window.lukso.on === "function") {
+    window.lukso.on("accountsChanged", () => window.location.reload());
+  }
+
+  if (!state.isOwner) {
+    renderError(
+      `Questo account (${shortAddr(state.connectedAddress)}) non e' l'owner del contratto ` +
+      `(owner attuale: ${shortAddr(owner)}). Connetti la UP ChainIntegrate per usare questo pannello.`
+    );
+    return;
+  }
+
+  await renderDashboard();
+}
+
+function renderError(msg) {
+  $("app-root").innerHTML = `<div class="empty-state">${escapeHtml(msg)}</div>`;
+}
+
+function explainRevert(e) {
+  const name = e?.revert?.name || e?.errorName;
+  const known = {
+    NotRegistryOwner: "Non sei il proprietario di questo contratto.",
+  };
+  if (name && known[name]) return known[name];
+  return "Operazione non riuscita: " + (e?.shortMessage || e?.message || "errore sconosciuto");
+}
+
+// =======================================================================
+// DASHBOARD — due sezioni: Membership accettate, e limiti per tier
+// =======================================================================
+async function renderDashboard() {
+  $("app-root").innerHTML = `
+    <div class="card">
+      <h2>Contratti Membership accettati</h2>
+      <p class="muted">Il Registro riconosce piu' contratti Membership contemporaneamente
+      (es. attuale + un futuro Diamond) — questa lista li gestisce.</p>
+      <div id="membership-list"></div>
+      <hr class="divider" />
+      <label for="new-membership-address">Aggiungi contratto Membership</label>
+      <div class="row">
+        <input type="text" id="new-membership-address" placeholder="0x..." />
+        <button class="btn" id="btn-add-membership" style="white-space:nowrap;">Aggiungi</button>
+      </div>
+      <div class="status-line" id="membership-status"></div>
+    </div>
+
+    <div class="card">
+      <h2>Limiti per tier</h2>
+      <p class="muted">Per ogni contratto Membership accettato, quanto puo' fare ciascun tier
+      (numero tier coerente col contratto Membership scelto: es. Bronze=1, Silver=2, Gold=3).</p>
+
+      <label for="tier-membership-select">Contratto Membership</label>
+      <select id="tier-membership-select"></select>
+
+      <label for="tier-number">Numero tier</label>
+      <input type="number" id="tier-number" min="0" value="1" />
+
+      <button class="btn btn-ghost" id="btn-load-tier" style="margin-top:12px;">Carica valori attuali</button>
+
+      <hr class="divider" />
+
+      <label for="tier-max-suppliers">Max fornitori</label>
+      <input type="number" id="tier-max-suppliers" min="0" />
+
+      <label for="tier-max-params">Max parametri per schema</label>
+      <input type="number" id="tier-max-params" min="0" />
+
+      <label for="tier-max-registries">Max registri mintabili</label>
+      <input type="number" id="tier-max-registries" min="0" />
+
+      <div class="checkbox-row">
+        <input type="checkbox" id="tier-disclosure" />
+        <label for="tier-disclosure" style="margin:0;">Disclosure selettiva abilitata (feature Gold)</label>
+      </div>
+
+      <button class="btn" id="btn-save-tier" style="margin-top:14px;">Salva limiti</button>
+      <div class="status-line" id="tier-status"></div>
+    </div>
+  `;
+
+  await renderMembershipList();
+  $("btn-add-membership").addEventListener("click", addMembership);
+  $("btn-load-tier").addEventListener("click", loadTierValues);
+  $("btn-save-tier").addEventListener("click", saveTierValues);
+}
+
+// -----------------------------------------------------------------------
+// Membership accettate — nessun getter per l'array intero nel contratto
+// (e' privato), quindi si ricostruisce dagli eventi Added/Removed, stesso
+// principio "leggi dai log" gia' usato ovunque in questo progetto.
+// -----------------------------------------------------------------------
+async function getAcceptedMembershipContracts() {
+  const addedFilter = state.contractReadOnly.filters.MembershipContractAdded();
+  const removedFilter = state.contractReadOnly.filters.MembershipContractRemoved();
+  const [addedEvents, removedEvents] = await Promise.all([
+    state.contractReadOnly.queryFilter(addedFilter),
+    state.contractReadOnly.queryFilter(removedFilter),
+  ]);
+
+  // Ordina tutto per blocco per ricostruire lo stato finale nell'ordine corretto
+  const all = [
+    ...addedEvents.map(e => ({ type: "added", address: e.args.membershipContract, block: e.blockNumber, index: e.index })),
+    ...removedEvents.map(e => ({ type: "removed", address: e.args.membershipContract, block: e.blockNumber, index: e.index })),
+  ].sort((a, b) => a.block - b.block || a.index - b.index);
+
+  const accepted = new Set();
+  for (const ev of all) {
+    if (ev.type === "added") accepted.add(ev.address.toLowerCase());
+    else accepted.delete(ev.address.toLowerCase());
+  }
+  return [...accepted];
+}
+
+async function renderMembershipList() {
+  const list = $("membership-list");
+  const select = $("tier-membership-select");
+  list.innerHTML = `<p class="muted">Caricamento…</p>`;
+
+  const addresses = await getAcceptedMembershipContracts();
+
+  if (addresses.length === 0) {
+    list.innerHTML = `<p class="muted">Nessun contratto Membership accettato al momento.</p>`;
+    select.innerHTML = `<option value="">— nessuno disponibile —</option>`;
+    return;
+  }
+
+  list.innerHTML = addresses.map(addr => `
+    <div class="row-between" style="padding:6px 0; border-top:1px solid var(--powder-line);">
+      <span class="mono">${escapeHtml(addr)}</span>
+      <button class="btn btn-danger" data-remove="${escapeHtml(addr)}" style="padding:4px 10px; font-size:12px;">Rimuovi</button>
+    </div>
+  `).join("");
+
+  select.innerHTML = addresses.map(addr => `<option value="${escapeHtml(addr)}">${escapeHtml(addr)}</option>`).join("");
+
+  list.querySelectorAll("[data-remove]").forEach(btn => {
+    btn.addEventListener("click", () => removeMembership(btn.dataset.remove));
+  });
+}
+
+async function addMembership() {
+  const address = $("new-membership-address").value.trim();
+  const status = $("membership-status");
+  if (!ethers.isAddress(address)) {
+    status.textContent = "Indirizzo non valido.";
+    status.className = "status-line error";
+    return;
+  }
+  status.textContent = "Conferma la transazione…";
+  status.className = "status-line";
+  try {
+    const tx = await state.contract.addMembershipContract(address);
+    await tx.wait();
+    $("new-membership-address").value = "";
+    status.textContent = "Aggiunto.";
+    status.className = "status-line ok";
+    await renderMembershipList();
+  } catch (e) {
+    status.textContent = explainRevert(e);
+    status.className = "status-line error";
+  }
+}
+
+async function removeMembership(address) {
+  const status = $("membership-status");
+  status.textContent = "Conferma la transazione…";
+  status.className = "status-line";
+  try {
+    const tx = await state.contract.removeMembershipContract(address);
+    await tx.wait();
+    status.textContent = "Rimosso.";
+    status.className = "status-line ok";
+    await renderMembershipList();
+  } catch (e) {
+    status.textContent = explainRevert(e);
+    status.className = "status-line error";
+  }
+}
+
+// -----------------------------------------------------------------------
+// Limiti per tier
+// -----------------------------------------------------------------------
+async function loadTierValues() {
+  const membershipContract = $("tier-membership-select").value;
+  const tier = $("tier-number").value;
+  const status = $("tier-status");
+  if (!membershipContract) {
+    status.textContent = "Nessun contratto Membership selezionato.";
+    status.className = "status-line error";
+    return;
+  }
+  try {
+    const limits = await state.contractReadOnly.tierLimits(membershipContract, tier);
+    $("tier-max-suppliers").value = limits.maxSuppliers.toString();
+    $("tier-max-params").value = limits.maxParams.toString();
+    $("tier-max-registries").value = limits.maxRegistries.toString();
+    $("tier-disclosure").checked = limits.canDiscloseSelectively;
+    status.textContent = limits.configured ? "Valori attuali caricati." : "Tier non ancora configurato (valori a zero).";
+    status.className = "status-line ok";
+  } catch (e) {
+    status.textContent = explainRevert(e);
+    status.className = "status-line error";
+  }
+}
+
+async function saveTierValues() {
+  const membershipContract = $("tier-membership-select").value;
+  const tier = $("tier-number").value;
+  const maxSuppliers = $("tier-max-suppliers").value || "0";
+  const maxParams = $("tier-max-params").value || "0";
+  const maxRegistries = $("tier-max-registries").value || "0";
+  const canDiscloseSelectively = $("tier-disclosure").checked;
+  const status = $("tier-status");
+
+  if (!membershipContract) {
+    status.textContent = "Nessun contratto Membership selezionato.";
+    status.className = "status-line error";
+    return;
+  }
+
+  status.textContent = "Conferma la transazione…";
+  status.className = "status-line";
+  try {
+    const tx = await state.contract.setTierLimits(
+      membershipContract, tier, maxSuppliers, maxParams, canDiscloseSelectively, maxRegistries
+    );
+    await tx.wait();
+    status.textContent = "Salvato.";
+    status.className = "status-line ok";
+  } catch (e) {
+    status.textContent = explainRevert(e);
+    status.className = "status-line error";
+  }
+}
+
+$("btn-connect").addEventListener("click", connect);
+</script>
+
+</body>
+</html>
