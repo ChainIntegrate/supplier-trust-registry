@@ -290,6 +290,9 @@
     <h2>Nuova valutazione</h2>
     <div id="evaluation-criteria-fields"></div>
 
+    <label for="evaluation-date">Data a cui si riferisce la valutazione</label>
+    <input type="date" id="evaluation-date" />
+
     <label for="evaluation-note">Note</label>
     <textarea id="evaluation-note" rows="3" placeholder="Osservazioni facoltative"></textarea>
 
@@ -567,6 +570,13 @@ async function connect() {
 // quindi un contenuto malevolo scritto da un proprietario finirebbe
 // eseguito nel browser di un visitatore ignaro. Mai interpolare testo
 // utente in innerHTML senza passare da qui.
+function formatDateITA(isoDate) {
+  // isoDate atteso in formato YYYY-MM-DD (dall'input type="date")
+  const d = new Date(isoDate + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return isoDate;
+  return d.toLocaleDateString("it-IT", { year: "numeric", month: "long", day: "numeric" });
+}
+
 function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = String(str ?? "");
@@ -801,6 +811,7 @@ async function renderEvaluationsForSupplier(supplierId) {
           <span class="mono">#${evaluationId} · ${contentHash.slice(0, 14)}…${supersedes > 0n ? ` (corregge #${supersedes})` : ""}</span>
           <span class="badge ${isPublic ? "badge-public" : "badge-private"}">${isPublic ? "Pubblica" : "Privata"}</span>
         </div>
+        <div class="muted" id="eval-date-${supplierId}-${evaluationId}" style="font-size:12px; margin-top:2px;">Data…</div>
         <div id="eval-detail-${supplierId}-${evaluationId}" style="margin-top:6px;">
           <span class="muted">Caricamento…</span>
         </div>
@@ -809,6 +820,23 @@ async function renderEvaluationsForSupplier(supplierId) {
 
   for (const ev of events) {
     resolveEvaluationContent(supplierId, ev.args);
+    resolveEvaluationDate(supplierId, ev);
+  }
+}
+
+// La data non e' un campo scritto a mano nel JSON (non verificabile, e'
+// solo cio' che il dispositivo di chi scrive pensa sia la data) — e' il
+// timestamp del blocco in cui la transazione e' stata minata, letto dalla
+// catena stessa. Un'informazione, non un dato aggiuntivo da salvare.
+async function resolveEvaluationDate(supplierId, ev) {
+  const el = $(`eval-date-${supplierId}-${ev.args.evaluationId}`);
+  if (!el) return;
+  try {
+    const block = await ev.getBlock();
+    const date = new Date(Number(block.timestamp) * 1000);
+    el.textContent = "Registrata il " + date.toLocaleDateString("it-IT", { year: "numeric", month: "long", day: "numeric" });
+  } catch {
+    el.textContent = "";
   }
 }
 
@@ -839,6 +867,7 @@ async function resolveEvaluationContent(supplierId, args) {
       .join("");
 
     el.innerHTML = `
+      ${payload.data ? `<div class="muted" style="font-size:12px;">Riferita al ${escapeHtml(formatDateITA(payload.data))}</div>` : ""}
       ${criteriHtml}
       ${payload.note ? `<div class="muted" style="margin-top:4px; font-size:13px;">${escapeHtml(payload.note)}</div>` : ""}
     `;
@@ -986,6 +1015,10 @@ async function openEvaluationModal(supplierId) {
 
   $("evaluation-modal").dataset.schemaVersion = latestVersion.toString();
   $("evaluation-modal").dataset.paramCount = paramNames.length.toString();
+  // Default a oggi, ma modificabile — serve proprio per poter registrare
+  // valutazioni passate (es. importare uno storico), non solo quelle fatte
+  // nel momento in cui si preme il pulsante.
+  $("evaluation-date").value = new Date().toISOString().slice(0, 10);
   $("evaluation-modal").classList.add("open");
 }
 $("evaluation-cancel").addEventListener("click", () => $("evaluation-modal").classList.remove("open"));
@@ -1000,6 +1033,7 @@ async function submitEvaluation() {
   const paramCount = Number(modal.dataset.paramCount);
   const isPublic = $("evaluation-public-toggle").checked;
   const note = $("evaluation-note").value;
+  const evaluationDate = $("evaluation-date").value; // YYYY-MM-DD, a quando si riferisce la valutazione
 
   if (!isPublic && !state.cryptoKey) {
     openPinModal(submitEvaluation);
@@ -1008,10 +1042,24 @@ async function submitEvaluation() {
 
   const criteri = {};
   for (let i = 0; i < paramCount; i++) {
+    const input = $(`crit-${i}`);
     const label = $("evaluation-criteria-fields").children[i * 2].textContent.split(" (")[0];
-    criteri[label] = Number($(`crit-${i}`).value);
+    const value = Number(input.value);
+    const min = Number(input.min);
+    const max = Number(input.max);
+
+    // Il contratto non puo' MAI verificare questo range da solo — per le
+    // valutazioni private e' impossibile per costruzione (vede solo un
+    // hash), e anche per quelle pubbliche non ha modo di rileggere il
+    // JSON dopo l'upload. Questo controllo esiste solo qui, lato UI.
+    if (Number.isNaN(value) || value < min || value > max) {
+      $("evaluation-status").textContent =
+        `"${label}" deve essere tra ${min} e ${max} (hai messo ${input.value || "un valore vuoto"}).`;
+      return;
+    }
+    criteri[label] = value;
   }
-  const payload = { criteri, note };
+  const payload = { criteri, note, data: evaluationDate };
 
   $("evaluation-status").textContent = "Cifratura e upload in corso…";
   try {
