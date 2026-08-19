@@ -337,7 +337,7 @@
   // Tenuta come script classico (non module) cosi' e' un global disponibile
   // per il <script type="module"> successivo, senza bisogno di un fetch
   // separato ne' di un secondo file da servire.
-  window.REGISTRY_ABI_JSON = [{"inputs":[],"name":"ERC725Y_DataKeysValuesEmptyArray","type":"error"},{"inputs":[],"name":"ERC725Y_DataKeysValuesLengthMismatch","type":"error"},{"inputs":[],"name":"ERC725Y_MsgValueDisallowed","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"supplierId","type":"uint256"},{"internalType":"uint256","name":"evaluationId","type":"uint256"}],"name":"EvaluationDoesNotExist","type":"error"},{"inputs":[{"internalType":"bytes","name":"storedData","type":"bytes"}],"name":"InvalidExtensionAddress","type":"error"},{"inputs":[{"internalType":"bytes","name":"data","type":"bytes"}],"name":"InvalidFunctionSelector","type":"error"},{"inputs":[],"name":"LSP4TokenNameNotEditable","type":"error"},{"inputs":[],"name":"LSP4TokenSymbolNotEditable","type":"error"},{"inputs":[],"name":"LSP4TokenTypeNotEditable","type":"error"},{"inputs":[{"internalType":"uint256","name":"callIndex","type":"uint256"}],"name":"LSP8BatchCallFailed","type":"error"},{"inputs":[],"name":"LSP8CannotSendToAddressZero","type":"error"},{"inputs":[],"name":"LSP8CannotUseAddressZeroAsOperator","type":"error"},{"inputs":[],"name":"LSP8InvalidTransferBatch","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"LSP8NonExistentTokenId","type":"error"},{"inputs":[{"internalType":"address","name":"operator","type":"address"},{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"LSP8NonExistingOperator","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"address","name":"caller","type":"address"}],"name":"LSP8NotTokenOperator","type":"error"},{"inputs":[{"internalType":"address","name":"tokenOwner","type":"address"},{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"address","name":"caller","type":"address"}],"name":"LSP8NotTokenOwner","type":"error"},{"inputs":[{"internalType":"address","name":"tokenReceiver","type":"address"}],"name":"LSP8NotifyTokenReceiverContractMissingLSP1Interface","type":"error"},{"inputs":[{"internalType":"address","name":"tokenReceiver","type":"address"}],"name":"LSP8NotifyTokenReceiverIsEOA","type":"error"},{"inputs":[{"internalType":"address","name":"operator","type":"address"},{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"LSP8OperatorAlreadyAuthorized","type":"error"},{"inputs":[{"internalType":"address","name":"caller","type":"address"},{"internalType":"address","name":"tokenOwner","type":"address"},{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"LSP8RevokeOperatorNotAuthorized","type":"error"},{"inputs":[],"name":"LSP8TokenContractCannotHoldValue","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"LSP8TokenIdAlreadyMinted","type":"error"},{"inputs":[],"name":"LSP8TokenIdFormatNotEditable","type":"error"},{"inputs":[],"name":"LSP8TokenIdsDataEmptyArray","type":"error"},{"inputs":[],"name":"LSP8TokenIdsDataLengthMismatch","type":"error"},{"inputs":[],"name":"LSP8TokenOwnerCannotBeOperator","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"address","name":"oldOwner","type":"address"},{"internalType":"address","name":"newOwner","type":"address"}],"name":"LSP8TokenOwnerChanged","type":"error"},{"inputs":[{"internalType":"bytes4","name":"functionSelector","type":"bytes4"}],"name":"NoExtensionFoundForFunctionSelector","type":"error"},{"inputs":[{"internalType":"bytes32","name":"oldTokenId","type":"bytes32"}],"name":"NoPendingSuccessionProposal","type":"error"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"NoRecognizedMembership","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"address","name":"caller","type":"address"}],"name":"NotRegistryOwner","type":"error"},{"inputs":[],"name":"OwnableCannotSetZeroAddressAsOwner","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"limit","type":"uint256"}],"name":"ParamLimitReached","type":"error"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"RegistryAlreadyMinted","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"RegistryDoesNotExist","type":"error"},{"inputs":[],"name":"RegistryNotTransferable","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"version","type":"uint256"}],"name":"SchemaVersionDoesNotExist","type":"error"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"SelectiveDisclosureNotAllowed","type":"error"},{"inputs":[{"internalType":"bytes32","name":"newTokenId","type":"bytes32"}],"name":"SuccessorAlreadySet","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"supplierId","type":"uint256"}],"name":"SupplierDoesNotExist","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"limit","type":"uint256"}],"name":"SupplierLimitReached","type":"error"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"indexed":true,"internalType":"uint256","name":"supplierId","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"evaluationId","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"schemaVersion","type":"uint256"},{"indexed":false,"internalType":"bytes32","name":"contentHash","type":"bytes32"},{"indexed":false,"internalType":"string","name":"uri","type":"string"},{"indexed":false,"internalType":"bool","name":"isPublic","type":"bool"},{"indexed":false,"internalType":"uint256","name":"supersedes","type":"uint256"}],"name":"EvaluationAdded","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"indexed":true,"internalType":"uint256","name":"supplierId","type":"uint256"},{"indexed":true,"internalType":"uint256","name":"evaluationId","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"disclosureId","type":"uint256"},{"indexed":false,"internalType":"string","name":"disclosureUri","type":"string"},{"indexed":false,"internalType":"bytes32","name":"disclosureHash","type":"bytes32"}],"name":"EvaluationDisclosed","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"indexed":true,"internalType":"address","name":"owner","type":"address"}],"name":"RegistryMinted","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"indexed":true,"internalType":"uint256","name":"version","type":"uint256"},{"indexed":false,"internalType":"string[]","name":"paramNames","type":"string[]"},{"indexed":false,"internalType":"int256","name":"minValue","type":"int256"},{"indexed":false,"internalType":"int256","name":"maxValue","type":"int256"}],"name":"SchemaDefined","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"oldTokenId","type":"bytes32"},{"indexed":true,"internalType":"bytes32","name":"newTokenId","type":"bytes32"}],"name":"SuccessionConfirmed","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"oldTokenId","type":"bytes32"},{"indexed":true,"internalType":"bytes32","name":"newTokenId","type":"bytes32"}],"name":"SuccessionProposed","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"indexed":true,"internalType":"uint256","name":"supplierId","type":"uint256"},{"indexed":false,"internalType":"bytes32","name":"nameHash","type":"bytes32"},{"indexed":false,"internalType":"string","name":"nameUri","type":"string"},{"indexed":false,"internalType":"bool","name":"isNamePublic","type":"bool"}],"name":"SupplierAdded","type":"event"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"supplierId","type":"uint256"},{"internalType":"uint256","name":"schemaVersion","type":"uint256"},{"internalType":"bytes32","name":"contentHash","type":"bytes32"},{"internalType":"string","name":"uri","type":"string"},{"internalType":"bool","name":"isPublic","type":"bool"},{"internalType":"uint256","name":"supersedes","type":"uint256"}],"name":"addEvaluation","outputs":[{"internalType":"uint256","name":"evaluationId","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"bytes32","name":"nameHash","type":"bytes32"},{"internalType":"string","name":"nameUri","type":"string"},{"internalType":"bool","name":"isNamePublic","type":"bool"}],"name":"addSupplier","outputs":[{"internalType":"uint256","name":"supplierId","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"bytes32","name":"newTokenId","type":"bytes32"},{"internalType":"bytes32","name":"oldTokenId","type":"bytes32"}],"name":"confirmSuccessor","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"string[]","name":"paramNames","type":"string[]"},{"internalType":"int256","name":"minValue","type":"int256"},{"internalType":"int256","name":"maxValue","type":"int256"}],"name":"defineSchema","outputs":[{"internalType":"uint256","name":"version","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"supplierId","type":"uint256"},{"internalType":"uint256","name":"evaluationId","type":"uint256"},{"internalType":"string","name":"disclosureUri","type":"string"},{"internalType":"bytes32","name":"disclosureHash","type":"bytes32"}],"name":"discloseEvaluation","outputs":[{"internalType":"uint256","name":"disclosureId","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"bytes32","name":"","type":"bytes32"},{"internalType":"uint256","name":"","type":"uint256"},{"internalType":"uint256","name":"","type":"uint256"}],"name":"disclosureCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"","type":"bytes32"},{"internalType":"uint256","name":"","type":"uint256"}],"name":"evaluationCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"getEffectiveLimits","outputs":[{"internalType":"uint256","name":"maxSuppliers","type":"uint256"},{"internalType":"uint256","name":"maxParams","type":"uint256"},{"internalType":"bool","name":"canDiscloseSelectively","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"version","type":"uint256"}],"name":"getSchema","outputs":[{"internalType":"string[]","name":"paramNames","type":"string[]"},{"internalType":"int256","name":"minValue","type":"int256"},{"internalType":"int256","name":"maxValue","type":"int256"},{"internalType":"uint256","name":"createdAt","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"mintRegistry","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"owner","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"","type":"bytes32"}],"name":"predecessorOf","outputs":[{"internalType":"bytes32","name":"","type":"bytes32"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"oldTokenId","type":"bytes32"},{"internalType":"bytes32","name":"newTokenId","type":"bytes32"}],"name":"proposeSuccessor","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"schemaVersionsCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"","type":"bytes32"}],"name":"supplierCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"tokenOwnerOf","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"}];
+  window.REGISTRY_ABI_JSON = [{"inputs":[],"name":"ERC725Y_DataKeysValuesEmptyArray","type":"error"},{"inputs":[],"name":"ERC725Y_DataKeysValuesLengthMismatch","type":"error"},{"inputs":[],"name":"ERC725Y_MsgValueDisallowed","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"supplierId","type":"uint256"},{"internalType":"uint256","name":"evaluationId","type":"uint256"}],"name":"EvaluationDoesNotExist","type":"error"},{"inputs":[{"internalType":"bytes","name":"storedData","type":"bytes"}],"name":"InvalidExtensionAddress","type":"error"},{"inputs":[{"internalType":"bytes","name":"data","type":"bytes"}],"name":"InvalidFunctionSelector","type":"error"},{"inputs":[],"name":"LSP4TokenNameNotEditable","type":"error"},{"inputs":[],"name":"LSP4TokenSymbolNotEditable","type":"error"},{"inputs":[],"name":"LSP4TokenTypeNotEditable","type":"error"},{"inputs":[{"internalType":"uint256","name":"callIndex","type":"uint256"}],"name":"LSP8BatchCallFailed","type":"error"},{"inputs":[],"name":"LSP8CannotSendToAddressZero","type":"error"},{"inputs":[],"name":"LSP8CannotUseAddressZeroAsOperator","type":"error"},{"inputs":[],"name":"LSP8InvalidTransferBatch","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"LSP8NonExistentTokenId","type":"error"},{"inputs":[{"internalType":"address","name":"operator","type":"address"},{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"LSP8NonExistingOperator","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"address","name":"caller","type":"address"}],"name":"LSP8NotTokenOperator","type":"error"},{"inputs":[{"internalType":"address","name":"tokenOwner","type":"address"},{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"address","name":"caller","type":"address"}],"name":"LSP8NotTokenOwner","type":"error"},{"inputs":[{"internalType":"address","name":"tokenReceiver","type":"address"}],"name":"LSP8NotifyTokenReceiverContractMissingLSP1Interface","type":"error"},{"inputs":[{"internalType":"address","name":"tokenReceiver","type":"address"}],"name":"LSP8NotifyTokenReceiverIsEOA","type":"error"},{"inputs":[{"internalType":"address","name":"operator","type":"address"},{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"LSP8OperatorAlreadyAuthorized","type":"error"},{"inputs":[{"internalType":"address","name":"caller","type":"address"},{"internalType":"address","name":"tokenOwner","type":"address"},{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"LSP8RevokeOperatorNotAuthorized","type":"error"},{"inputs":[],"name":"LSP8TokenContractCannotHoldValue","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"LSP8TokenIdAlreadyMinted","type":"error"},{"inputs":[],"name":"LSP8TokenIdFormatNotEditable","type":"error"},{"inputs":[],"name":"LSP8TokenIdsDataEmptyArray","type":"error"},{"inputs":[],"name":"LSP8TokenIdsDataLengthMismatch","type":"error"},{"inputs":[],"name":"LSP8TokenOwnerCannotBeOperator","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"address","name":"oldOwner","type":"address"},{"internalType":"address","name":"newOwner","type":"address"}],"name":"LSP8TokenOwnerChanged","type":"error"},{"inputs":[{"internalType":"bytes4","name":"functionSelector","type":"bytes4"}],"name":"NoExtensionFoundForFunctionSelector","type":"error"},{"inputs":[{"internalType":"bytes32","name":"oldTokenId","type":"bytes32"}],"name":"NoPendingSuccessionProposal","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"address","name":"caller","type":"address"}],"name":"NotRegistryOwner","type":"error"},{"inputs":[],"name":"OwnableCannotSetZeroAddressAsOwner","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"limit","type":"uint256"}],"name":"ParamLimitReached","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"RegistryDoesNotExist","type":"error"},{"inputs":[{"internalType":"address","name":"account","type":"address"},{"internalType":"uint256","name":"limit","type":"uint256"}],"name":"RegistryLimitReached","type":"error"},{"inputs":[],"name":"RegistryNotTransferable","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"version","type":"uint256"}],"name":"SchemaVersionDoesNotExist","type":"error"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"SelectiveDisclosureNotAllowed","type":"error"},{"inputs":[{"internalType":"bytes32","name":"newTokenId","type":"bytes32"}],"name":"SuccessorAlreadySet","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"supplierId","type":"uint256"}],"name":"SupplierDoesNotExist","type":"error"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"limit","type":"uint256"}],"name":"SupplierLimitReached","type":"error"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"indexed":true,"internalType":"uint256","name":"supplierId","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"evaluationId","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"schemaVersion","type":"uint256"},{"indexed":false,"internalType":"bytes32","name":"contentHash","type":"bytes32"},{"indexed":false,"internalType":"string","name":"uri","type":"string"},{"indexed":false,"internalType":"bool","name":"isPublic","type":"bool"},{"indexed":false,"internalType":"uint256","name":"supersedes","type":"uint256"}],"name":"EvaluationAdded","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"indexed":true,"internalType":"uint256","name":"supplierId","type":"uint256"},{"indexed":true,"internalType":"uint256","name":"evaluationId","type":"uint256"},{"indexed":false,"internalType":"uint256","name":"disclosureId","type":"uint256"},{"indexed":false,"internalType":"string","name":"disclosureUri","type":"string"},{"indexed":false,"internalType":"bytes32","name":"disclosureHash","type":"bytes32"}],"name":"EvaluationDisclosed","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"indexed":true,"internalType":"address","name":"owner","type":"address"},{"indexed":false,"internalType":"uint256","name":"index","type":"uint256"},{"indexed":false,"internalType":"string","name":"label","type":"string"}],"name":"RegistryMinted","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"indexed":true,"internalType":"uint256","name":"version","type":"uint256"},{"indexed":false,"internalType":"string[]","name":"paramNames","type":"string[]"},{"indexed":false,"internalType":"int256","name":"minValue","type":"int256"},{"indexed":false,"internalType":"int256","name":"maxValue","type":"int256"}],"name":"SchemaDefined","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"oldTokenId","type":"bytes32"},{"indexed":true,"internalType":"bytes32","name":"newTokenId","type":"bytes32"}],"name":"SuccessionConfirmed","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"oldTokenId","type":"bytes32"},{"indexed":true,"internalType":"bytes32","name":"newTokenId","type":"bytes32"}],"name":"SuccessionProposed","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"indexed":true,"internalType":"uint256","name":"supplierId","type":"uint256"},{"indexed":false,"internalType":"bytes32","name":"nameHash","type":"bytes32"},{"indexed":false,"internalType":"string","name":"nameUri","type":"string"},{"indexed":false,"internalType":"bool","name":"isNamePublic","type":"bool"}],"name":"SupplierAdded","type":"event"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"supplierId","type":"uint256"},{"internalType":"uint256","name":"schemaVersion","type":"uint256"},{"internalType":"bytes32","name":"contentHash","type":"bytes32"},{"internalType":"string","name":"uri","type":"string"},{"internalType":"bool","name":"isPublic","type":"bool"},{"internalType":"uint256","name":"supersedes","type":"uint256"}],"name":"addEvaluation","outputs":[{"internalType":"uint256","name":"evaluationId","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"bytes32","name":"nameHash","type":"bytes32"},{"internalType":"string","name":"nameUri","type":"string"},{"internalType":"bool","name":"isNamePublic","type":"bool"}],"name":"addSupplier","outputs":[{"internalType":"uint256","name":"supplierId","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"bytes32","name":"newTokenId","type":"bytes32"},{"internalType":"bytes32","name":"oldTokenId","type":"bytes32"}],"name":"confirmSuccessor","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"string[]","name":"paramNames","type":"string[]"},{"internalType":"int256","name":"minValue","type":"int256"},{"internalType":"int256","name":"maxValue","type":"int256"}],"name":"defineSchema","outputs":[{"internalType":"uint256","name":"version","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"supplierId","type":"uint256"},{"internalType":"uint256","name":"evaluationId","type":"uint256"},{"internalType":"string","name":"disclosureUri","type":"string"},{"internalType":"bytes32","name":"disclosureHash","type":"bytes32"}],"name":"discloseEvaluation","outputs":[{"internalType":"uint256","name":"disclosureId","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"bytes32","name":"","type":"bytes32"},{"internalType":"uint256","name":"","type":"uint256"},{"internalType":"uint256","name":"","type":"uint256"}],"name":"disclosureCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"","type":"bytes32"},{"internalType":"uint256","name":"","type":"uint256"}],"name":"evaluationCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"getEffectiveLimits","outputs":[{"internalType":"uint256","name":"maxSuppliers","type":"uint256"},{"internalType":"uint256","name":"maxParams","type":"uint256"},{"internalType":"bool","name":"canDiscloseSelectively","type":"bool"},{"internalType":"uint256","name":"maxRegistries","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"},{"internalType":"uint256","name":"version","type":"uint256"}],"name":"getSchema","outputs":[{"internalType":"string[]","name":"paramNames","type":"string[]"},{"internalType":"int256","name":"minValue","type":"int256"},{"internalType":"int256","name":"maxValue","type":"int256"},{"internalType":"uint256","name":"createdAt","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"string","name":"label","type":"string"}],"name":"mintRegistry","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"owner","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"","type":"bytes32"}],"name":"predecessorOf","outputs":[{"internalType":"bytes32","name":"","type":"bytes32"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"oldTokenId","type":"bytes32"},{"internalType":"bytes32","name":"newTokenId","type":"bytes32"}],"name":"proposeSuccessor","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"","type":"address"}],"name":"registryCountOf","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"schemaVersionsCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"","type":"bytes32"}],"name":"supplierCount","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"tokenId","type":"bytes32"}],"name":"tokenOwnerOf","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"}];
 </script>
 <script type="module">
 const REGISTRY_ABI_JSON = window.REGISTRY_ABI_JSON;
@@ -348,7 +348,7 @@ const REGISTRY_ABI_JSON = window.REGISTRY_ABI_JSON;
 const CONFIG = {
   CHAIN_ID: 4201, // testnet — 42 sarebbe mainnet, non ancora deployato li'
   RPC_URL: "https://42.rpc.thirdweb.com/REPLACE_WITH_CLIENT_ID", // stesso provider gia' in uso per MatchPredictor
-  REGISTRY_CONTRACT: "0x325f6f9790409DB689cf976BcEEa621DE0606C7C", // testnet, deployato e verificato
+  REGISTRY_CONTRACT: "0x527F333d351E5A9b3061f59ED338631aabdB2C93", // testnet V2 (multi-registro), deployato e verificato
   KDF_ITERATIONS: 600000, // PBKDF2-HMAC-SHA256, raccomandazione OWASP 2023/2025
   PINATA_GATEWAY: "peach-familiar-wombat-848.mypinata.cloud", // gateway dedicato dell'account ChainIntegrate
 };
@@ -375,12 +375,11 @@ const state = {
   ethersProvider: null,
   signer: null,
   visitorAccount: null,   // chi ha collegato il wallet (per firmare/pagare gas)
-  contextAccount: null,   // il registro che si sta visualizzando: il proprio
-                           // per default, oppure quello indicato in ?address=0x...
-                           // nell'URL (per condividere un registro pubblico altrui)
+  registryOwner: null,    // proprietario EFFETTIVO del registro aperto (letto da tokenOwnerOf)
   contract: null,
   contractReadOnly: null,
-  tokenId: null,          // bytes32(uint256(uint160(contextAccount)))
+  tokenId: null,          // bytes32 — con V2 NON e' piu' derivabile dal solo indirizzo,
+                           // va scoperto (lista registri) o passato via ?tokenId=0x...
   isOwner: false,
   cryptoKey: null,        // CryptoKey derivata dal PIN, tenuta solo in memoria di sessione
   sessionToken: null,     // JWT emesso da /api/auth/verify, valido 30 minuti
@@ -394,15 +393,18 @@ const $ = (id) => document.getElementById(id);
 // =======================================================================
 // CRIPTOGRAFIA — PBKDF2 (SubtleCrypto nativo) + AES-256-GCM
 // Stesso identico flusso dimostrato in chat: JSON in chiaro -> cifrato ->
-// byte grezzi su IPFS. Sale = keccak256(indirizzo UP che minta + indirizzo
-// contratto), letto SEMPRE dalla catena al momento del mint, mai dalla
-// sessione corrente (per non rischiare un sale sbagliato in caso di bug UI).
+// byte grezzi su IPFS. Sale = keccak256(tokenId del registro + indirizzo
+// contratto) — NON piu' solo l'indirizzo del proprietario, perche' con
+// piu' registri per indirizzo (V2) quello da solo non basta a distinguerli:
+// stesso PIN su registri diversi produce comunque chiavi diverse, perche'
+// il tokenId cambia. Letto sempre dalla catena al momento dell'apertura
+// del registro, mai da uno stato locale che potrebbe sbagliarsi.
 // =======================================================================
 
-async function deriveKey(pin, ownerAddress, contractAddress) {
+async function deriveKey(pin, tokenId, contractAddress) {
   const saltSource = ethers.getBytes(
     ethers.keccak256(ethers.concat([
-      ethers.getBytes(ownerAddress),
+      ethers.getBytes(tokenId),
       ethers.getBytes(contractAddress),
     ]))
   );
@@ -472,7 +474,7 @@ async function ensureSession() {
     return state.sessionToken;
   }
 
-  const address = state.contextAccount; // la UP proprietaria del registro, non il visitatore
+  const address = state.registryOwner; // la UP proprietaria del registro, non il visitatore
   const challengeRes = await fetch("/api/auth/challenge", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -543,11 +545,10 @@ async function fetchFromIPFS(uri) {
 // =======================================================================
 // CONNESSIONE UP — pagina normale, nessun Grid/iframe. L'estensione UP
 // inietta window.lukso su qualunque pagina (standard EIP-1193, come
-// window.ethereum di MetaMask). "Quale registro sto guardando" non viene
-// piu' da un contesto di embedding, ma da un parametro URL esplicito
-// (?address=0x...) — se assente, si assume "il proprio registro".
-// Questo permette anche di condividere un link diretto a un registro
-// pubblico altrui, es. supplier-trust-registry.chainintegrate.it/?address=0x...
+// window.ethereum di MetaMask). Con V2 un indirizzo puo' avere PIU'
+// registri — "quale registro sto guardando" arriva da ?tokenId=0x...
+// nell'URL (per condividere un link diretto), oppure, se assente, si
+// scoprono tutti i registri del visitatore e si mostra una lista.
 // =======================================================================
 async function connect() {
   if (!window.lukso) {
@@ -568,21 +569,11 @@ async function connect() {
     return;
   }
 
-  const params = new URLSearchParams(window.location.search);
-  const addressParam = params.get("address");
-  state.contextAccount = (addressParam && ethers.isAddress(addressParam))
-    ? ethers.getAddress(addressParam)
-    : state.visitorAccount; // default: il proprio registro
-
   state.signer = await state.ethersProvider.getSigner();
-  state.isOwner = state.visitorAccount.toLowerCase() === state.contextAccount.toLowerCase();
-
   state.contract = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, ABI, state.signer);
   state.contractReadOnly = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, ABI, state.ethersProvider);
 
-  state.tokenId = ethers.zeroPadValue(state.contextAccount, 32);
-
-  $("btn-connect").textContent = shortAddr(state.visitorAccount) + (state.isOwner ? " (proprietario)" : " (visitatore)");
+  $("btn-connect").textContent = shortAddr(state.visitorAccount);
   $("btn-connect").disabled = true;
 
   if (typeof window.lukso.on === "function") {
@@ -590,11 +581,18 @@ async function connect() {
     window.lukso.on("chainChanged", () => window.location.reload());
   }
 
-  await loadRegistry();
+  const params = new URLSearchParams(window.location.search);
+  const tokenIdParam = params.get("tokenId");
+
+  if (tokenIdParam && /^0x[0-9a-fA-F]{64}$/.test(tokenIdParam)) {
+    await openRegistry(tokenIdParam);
+  } else {
+    await renderRegistrySelector();
+  }
 }
 
 // Contenuto delle valutazioni (criteri, note) puo' finire in innerHTML —
-// e con ?address= chiunque puo' visitare il registro pubblico di un altro,
+// e con ?tokenId= chiunque puo' visitare il registro pubblico di un altro,
 // quindi un contenuto malevolo scritto da un proprietario finirebbe
 // eseguito nel browser di un visitatore ignaro. Mai interpolare testo
 // utente in innerHTML senza passare da qui.
@@ -617,61 +615,102 @@ function shortAddr(addr) {
 }
 
 // =======================================================================
-// CARICAMENTO REGISTRO
+// APERTURA DI UN REGISTRO SPECIFICO — il proprietario si legge SEMPRE
+// dalla catena (tokenOwnerOf), mai assunto dall'indirizzo che ha
+// mintato: con V2 l'unico modo affidabile di sapere "chi possiede questo
+// tokenId" e' chiederlo al contratto.
 // =======================================================================
-async function loadRegistry() {
-  let ownerOfToken;
+async function openRegistry(tokenId) {
+  let owner;
   try {
-    ownerOfToken = await state.contractReadOnly.tokenOwnerOf(state.tokenId);
+    owner = await state.contractReadOnly.tokenOwnerOf(tokenId);
   } catch (e) {
-    // LSP8NonExistentTokenId -> nessun registro ancora mintato
-    renderMintScreen();
+    renderError("Nessun registro trovato per questo tokenId.");
     return;
   }
+  state.tokenId = tokenId;
+  state.registryOwner = owner;
+  state.isOwner = state.visitorAccount.toLowerCase() === owner.toLowerCase();
   await renderDashboard();
 }
 
-async function renderMintScreen() {
-  const [maxSuppliers, maxParams] = await state.contractReadOnly.getEffectiveLimits(state.contextAccount);
-  const root = $("app-root");
+// =======================================================================
+// SCOPERTA DEI REGISTRI DEL VISITATORE — via eventi RegistryMinted
+// filtrati per owner, stesso pattern eth_getLogs gia' in uso ovunque nel
+// resto del progetto. Zero storage on-chain dedicato a "quali registri
+// ha questo indirizzo": si ricostruisce sempre dai log.
+// =======================================================================
+async function renderRegistrySelector() {
+  const filter = state.contractReadOnly.filters.RegistryMinted(null, state.visitorAccount);
+  const events = await state.contractReadOnly.queryFilter(filter);
+  const [, , , maxRegistries] = await state.contractReadOnly.getEffectiveLimits(state.visitorAccount);
 
-  if (maxSuppliers === 0n) {
-    root.innerHTML = `
-      <div class="empty-state">
-        <h3>Nessuna Membership riconosciuta</h3>
-        <p class="muted">Serve almeno una Membership ChainIntegrate (Bronze o superiore)<br/>collegata a questa Universal Profile per poter mintare un Registro.</p>
-      </div>`;
+  if (events.length === 1) {
+    await openRegistry(events[0].args.tokenId);
     return;
   }
 
-  root.innerHTML = `
-    <div class="empty-state">
-      <h3>Nessun Registro ancora mintato</h3>
-      <p class="muted">Limiti attuali in base alla tua Membership: fino a ${maxSuppliers} fornitori.</p>
-      ${state.isOwner
-        ? `<button class="btn" id="btn-mint" style="margin-top:12px;">Minta il tuo Registro</button>
-           <div id="mint-status" class="muted" style="margin-top:10px;"></div>`
-        : `<p class="muted">Solo la UP proprietaria di questo contesto può mintare il Registro.</p>`}
-    </div>`;
+  const root = $("app-root");
+  const canMintMore = events.length < maxRegistries;
 
-  if (state.isOwner) {
+  root.innerHTML = `
+    ${events.length > 0 ? `
+      <h2 style="margin-bottom:4px;">I tuoi Registri</h2>
+      <p class="muted" style="margin-top:0;">${events.length} / ${maxRegistries} usati per il tuo tier</p>
+      <div class="card">
+        ${events.map(ev => `
+          <div class="row-between" style="padding:10px 0; border-top:1px solid var(--powder-line);">
+            <div>
+              <strong>${escapeHtml(ev.args.label || ("Registro #" + ev.args.index))}</strong>
+              <div class="mono" style="font-size:11px;">${ev.args.tokenId.slice(0, 18)}…</div>
+            </div>
+            <button class="btn btn-ghost open-registry-btn" data-token-id="${ev.args.tokenId}">Apri</button>
+          </div>
+        `).join("")}
+      </div>
+    ` : ""}
+    ${maxRegistries === 0 ? `
+      <div class="empty-state">
+        <h3>Nessuna Membership riconosciuta</h3>
+        <p class="muted">Serve almeno una Membership ChainIntegrate (Bronze o superiore)<br/>collegata a questa Universal Profile per poter mintare un Registro.</p>
+      </div>
+    ` : canMintMore ? `
+      <div class="card">
+        <h3>${events.length === 0 ? "Minta il tuo primo Registro" : "Nuovo Registro"}</h3>
+        <label for="mint-label">Etichetta (es. "Fornitori di servizi")</label>
+        <input type="text" id="mint-label" placeholder="Un nome per riconoscerlo" />
+        <button class="btn" id="btn-mint" style="margin-top:12px;">Minta</button>
+        <div id="mint-status" class="muted" style="margin-top:8px;"></div>
+      </div>
+    ` : `<p class="muted">Hai raggiunto il numero massimo di registri per il tuo tier (${maxRegistries}).</p>`}
+  `;
+
+  root.querySelectorAll(".open-registry-btn").forEach(btn => {
+    btn.addEventListener("click", () => openRegistry(btn.dataset.tokenId));
+  });
+
+  if ($("btn-mint")) {
     $("btn-mint").addEventListener("click", async () => {
+      const label = $("mint-label").value.trim() || "Registro senza nome";
       const btn = $("btn-mint");
       const status = $("mint-status");
       btn.disabled = true;
       btn.textContent = "Conferma dal wallet…";
       status.textContent = "Apri l'estensione/app UP per confermare la firma.";
       try {
-        const tx = await state.contract.mintRegistry();
+        const tx = await state.contract.mintRegistry(label);
         btn.textContent = "Transazione in corso…";
         status.textContent = "Transazione inviata, in attesa di conferma on-chain — può richiedere qualche secondo.";
-        await tx.wait();
+        const receipt = await tx.wait();
         status.textContent = "Registro mintato, apertura in corso…";
-        await loadRegistry();
+        const minted = receipt.logs
+          .map(l => { try { return state.contract.interface.parseLog(l); } catch { return null; } })
+          .find(e => e && e.name === "RegistryMinted");
+        await openRegistry(minted.args.tokenId);
       } catch (e) {
         status.textContent = explainRevert(e);
         btn.disabled = false;
-        btn.textContent = "Minta il tuo Registro";
+        btn.textContent = "Minta";
       }
     });
   }
@@ -681,7 +720,7 @@ async function renderMintScreen() {
 // DASHBOARD PRINCIPALE
 // =======================================================================
 async function renderDashboard() {
-  const [maxSuppliers] = await state.contractReadOnly.getEffectiveLimits(state.contextAccount);
+  const [maxSuppliers] = await state.contractReadOnly.getEffectiveLimits(state.registryOwner);
   const supplierCount = await state.contractReadOnly.supplierCount(state.tokenId);
   const schemaVersions = await state.contractReadOnly.schemaVersionsCount(state.tokenId);
 
@@ -689,6 +728,7 @@ async function renderDashboard() {
   root.innerHTML = `
     <div class="row-between">
       <div>
+        <button class="btn-ghost" id="btn-back-to-list" style="border:none; background:none; color:var(--blueprint); cursor:pointer; padding:0; font-size:13px; margin-bottom:4px;">← I tuoi registri</button>
         <h2 style="margin:0;">Il tuo Registro</h2>
         <div class="mono">${state.tokenId}</div>
       </div>
@@ -718,6 +758,10 @@ async function renderDashboard() {
     if (state.isOwner) $("btn-add-supplier").addEventListener("click", openSupplierModal);
   }
   if (state.isOwner) $("btn-unlock").addEventListener("click", () => openPinModal());
+  $("btn-back-to-list").addEventListener("click", () => {
+    state.cryptoKey = null; // si esce dal registro, la chiave non deve sopravvivere al cambio contesto
+    renderRegistrySelector();
+  });
 }
 
 function renderSchemaSetup() {
@@ -993,7 +1037,7 @@ $("pin-confirm").addEventListener("click", async () => {
     return;
   }
 
-  state.cryptoKey = await deriveKey(pin, state.contextAccount, CONFIG.REGISTRY_CONTRACT);
+  state.cryptoKey = await deriveKey(pin, state.tokenId, CONFIG.REGISTRY_CONTRACT);
   $("pin-input").value = "";
   $("pin-confirm-input").value = "";
   $("pin-modal").classList.remove("open");
@@ -1083,7 +1127,7 @@ async function openEvaluationModal(supplierId) {
   // Allegato documentale: solo Gold. Riuso canDiscloseSelectively come
   // segnale "sei Gold" invece di introdurre un terzo concetto — e' lo
   // stesso flag gia' usato per la disclosure selettiva.
-  const [, , canDiscloseSelectively] = await state.contractReadOnly.getEffectiveLimits(state.contextAccount);
+  const [, , canDiscloseSelectively] = await state.contractReadOnly.getEffectiveLimits(state.registryOwner);
   $("evaluation-document-row").style.display = canDiscloseSelectively ? "block" : "none";
   $("evaluation-document-locked").style.display = canDiscloseSelectively ? "none" : "block";
 

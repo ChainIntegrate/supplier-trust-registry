@@ -55,7 +55,7 @@ const rpcProvider = new ethers.JsonRpcProvider(LUKSO_RPC_URL);
 // Solo la funzione di lettura che serve qui — niente ABI completa da
 // mantenere sincronizzata col contratto, un frammento minimo e stabile.
 const REGISTRY_LIMITS_ABI = [
-  "function getEffectiveLimits(address account) view returns (uint256 maxSuppliers, uint256 maxParams, bool canDiscloseSelectively)",
+  "function getEffectiveLimits(address account) view returns (uint256 maxSuppliers, uint256 maxParams, bool canDiscloseSelectively, uint256 maxRegistries)",
 ];
 const registryContract = new ethers.Contract(REGISTRY_CONTRACT_ADDRESS, REGISTRY_LIMITS_ABI, rpcProvider);
 
