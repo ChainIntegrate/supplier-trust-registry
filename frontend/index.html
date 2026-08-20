@@ -1275,6 +1275,7 @@ async function renderSuppliers() {
           ${isNamePublic ? t("publicNameBadge") : t("privateNameBadge")}
         </span>
       </div>
+      <div id="chart-${supplierId}"></div>
       <div class="mono" style="margin-top:4px;">nameHash: ${nameHash.slice(0, 18)}…</div>
       <button class="btn btn-ghost" data-supplier-id="${supplierId}" style="margin-top:10px;">${t("addEvaluationBtn")}</button>
       <div class="evaluations" id="evaluations-${supplierId}" style="margin-top:12px;"></div>
@@ -1309,6 +1310,88 @@ async function resolveSupplierName(supplierId, nameHash, nameUri, isNamePublic) 
 // =======================================================================
 // VALUTAZIONI
 // =======================================================================
+// =======================================================================
+// GRAFICO ANDAMENTO — un mini SVG disegnato a mano, niente librerie
+// esterne (coerente con "vanilla, zero build step" di tutto il resto).
+// Ascisse = data DI RIFERIMENTO della valutazione (non di registrazione,
+// stesso principio gia' usato per l'ordinamento della lista), ordinate =
+// punteggio. Una linea per ciascun criterio, ricavati dall'unione delle
+// chiavi presenti nei dati gia' risolti — nessuna lettura extra dello
+// schema, funziona anche se lo schema e' cambiato nel tempo (i criteri
+// non piu' in uso semplicemente smettono di comparire).
+// Usa solo le valutazioni gia' decifrate/pubbliche CON una data di
+// riferimento: quelle ancora bloccate (nessuna chiave) non hanno un
+// punto finche' non vengono sbloccate — il grafico si aggiorna da solo
+// alla prossima chiamata, non serve altro codice apposta.
+// =======================================================================
+const CHART_COLORS = ["#1D5C9E", "#2E8B7A", "#7B5EA7", "#5C7A99", "#B0709E", "#4A8FA6", "#8A6D3B", "#6B8E23"];
+
+function renderSupplierChart(supplierId, resolved) {
+  const container = $(`chart-${supplierId}`);
+  if (!container) return;
+
+  const points = resolved
+    .filter(r => r.payload && r.payload.criteri && r.payload.data)
+    .map(r => ({ date: r.payload.data, criteri: r.payload.criteri }))
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  if (points.length < 2) {
+    container.innerHTML = ""; // meno di due punti: nessuna linea disegnabile
+    return;
+  }
+
+  const criteriaNames = [...new Set(points.flatMap(p => Object.keys(p.criteri)))];
+
+  const width = 560, height = 160, padL = 8, padR = 8, padT = 10, padB = 8;
+  const plotW = width - padL - padR, plotH = height - padT - padB;
+
+  const dateMs = points.map(p => new Date(p.date + "T00:00:00").getTime());
+  const minDate = Math.min(...dateMs), maxDate = Math.max(...dateMs);
+  const dateSpan = maxDate - minDate || 1;
+
+  const allValues = points.flatMap(p => Object.values(p.criteri));
+  let minVal = Math.min(...allValues), maxVal = Math.max(...allValues);
+  if (minVal === maxVal) { minVal -= 1; maxVal += 1; }
+  const valPad = (maxVal - minVal) * 0.15;
+  minVal -= valPad; maxVal += valPad;
+
+  const xFor = (ms) => padL + ((ms - minDate) / dateSpan) * plotW;
+  const yFor = (v) => padT + plotH - ((v - minVal) / (maxVal - minVal)) * plotH;
+
+  const linesSvg = criteriaNames.map((name, i) => {
+    const color = CHART_COLORS[i % CHART_COLORS.length];
+    const coords = points
+      .map((p, idx) => (name in p.criteri) ? `${xFor(dateMs[idx]).toFixed(1)},${yFor(p.criteri[name]).toFixed(1)}` : null)
+      .filter(Boolean)
+      .join(" ");
+    const dots = points
+      .map((p, idx) => (name in p.criteri)
+        ? `<circle cx="${xFor(dateMs[idx]).toFixed(1)}" cy="${yFor(p.criteri[name]).toFixed(1)}" r="2.5" fill="${color}" />`
+        : "")
+      .join("");
+    return `<polyline points="${coords}" fill="none" stroke="${color}" stroke-width="2" />${dots}`;
+  }).join("");
+
+  const legend = criteriaNames.map((name, i) => `
+    <span style="display:inline-flex; align-items:center; gap:4px; margin-right:12px; font-size:11px; color:var(--ink-soft);">
+      <span style="width:8px; height:8px; border-radius:50%; background:${CHART_COLORS[i % CHART_COLORS.length]}; display:inline-block;"></span>
+      ${escapeHtml(name)}
+    </span>
+  `).join("");
+
+  container.innerHTML = `
+    <div style="margin:8px 0 4px;">${legend}</div>
+    <svg viewBox="0 0 ${width} ${height}" style="width:100%; height:auto; display:block;">
+      <line x1="${padL}" y1="${padT + plotH}" x2="${padL + plotW}" y2="${padT + plotH}" stroke="var(--powder-line)" stroke-width="1" />
+      ${linesSvg}
+    </svg>
+    <div class="row-between muted" style="font-size:11px; margin-top:2px;">
+      <span>${escapeHtml(formatDate(points[0].date))}</span>
+      <span>${escapeHtml(formatDate(points[points.length - 1].date))}</span>
+    </div>
+  `;
+}
+
 async function renderEvaluationsForSupplier(supplierId) {
   const filter = state.contractReadOnly.filters.EvaluationAdded(state.tokenId, supplierId);
   const events = await state.contractReadOnly.queryFilter(filter);
@@ -1360,6 +1443,7 @@ async function renderEvaluationsForSupplier(supplierId) {
   }));
 
   resolved.sort((a, b) => b.sortTimeMs - a.sortTimeMs); // piu' recenti (per data di riferimento) prima
+  renderSupplierChart(supplierId, resolved);
 
   container.innerHTML = resolved.map(r => `
     <div style="padding:8px 0; border-top:1px solid var(--powder-line);">
