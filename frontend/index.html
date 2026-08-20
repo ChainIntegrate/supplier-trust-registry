@@ -392,13 +392,13 @@ const state = {
 const $ = (id) => document.getElementById(id);
 
 // =======================================================================
-// I18N — inglese di default, italiano solo se il browser lo dichiara tra
-// le sue lingue preferite. Dizionario centralizzato invece di if sparsi
-// nel codice: piu' facile da mantenere e da verificare che nulla resti
-// non tradotto.
+// I18N — inglese di default, italiano solo se e' la lingua PRINCIPALE
+// dichiarata dal browser (non solo presente da qualche parte nella lista
+// di lingue preferite — un utente con ["en", "it"] vuole l'inglese, non
+// l'italiano solo perche' compare in seconda posizione).
 // =======================================================================
-const LANG = (navigator.languages || [navigator.language || "en"])
-  .some(l => l.toLowerCase().startsWith("it")) ? "it" : "en";
+const primaryLang = navigator.language || (navigator.languages && navigator.languages[0]) || "en";
+const LANG = primaryLang.toLowerCase().startsWith("it") ? "it" : "en";
 
 const I18N = {
   it: {
