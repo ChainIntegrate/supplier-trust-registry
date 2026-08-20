@@ -376,6 +376,7 @@ const state = {
   signer: null,
   visitorAccount: null,   // chi ha collegato il wallet (per firmare/pagare gas)
   registryOwner: null,    // proprietario EFFETTIVO del registro aperto (letto da tokenOwnerOf)
+  registryLabel: null,    // etichetta scelta al mint (es. "Fornitori di servizi"), letta dall'evento
   contract: null,
   contractReadOnly: null,
   tokenId: null,          // bytes32 — con V2 NON e' piu' derivabile dal solo indirizzo,
@@ -631,6 +632,19 @@ async function openRegistry(tokenId) {
   state.tokenId = tokenId;
   state.registryOwner = owner;
   state.isOwner = state.visitorAccount.toLowerCase() === owner.toLowerCase();
+
+  // L'etichetta scelta al mint non e' in nessun getter — va ripresa
+  // dall'evento RegistryMinted di questo specifico tokenId (filtro sul
+  // primo parametro indicizzato, che e' proprio il tokenId).
+  try {
+    const mintEvents = await state.contractReadOnly.queryFilter(
+      state.contractReadOnly.filters.RegistryMinted(tokenId)
+    );
+    state.registryLabel = mintEvents[0]?.args?.label || null;
+  } catch {
+    state.registryLabel = null;
+  }
+
   await renderDashboard();
 }
 
@@ -640,12 +654,15 @@ async function openRegistry(tokenId) {
 // resto del progetto. Zero storage on-chain dedicato a "quali registri
 // ha questo indirizzo": si ricostruisce sempre dai log.
 // =======================================================================
-async function renderRegistrySelector() {
+async function renderRegistrySelector(forceList = false) {
   const filter = state.contractReadOnly.filters.RegistryMinted(null, state.visitorAccount);
   const events = await state.contractReadOnly.queryFilter(filter);
   const [, , , maxRegistries] = await state.contractReadOnly.getEffectiveLimits(state.visitorAccount);
 
-  if (events.length === 1) {
+  // La scorciatoia "salta direttamente se ce n'e' solo uno" vale solo al
+  // primo accesso (connect()) — non quando l'utente ha esplicitamente
+  // chiesto di vedere il riepilogo cliccando "I tuoi registri".
+  if (events.length === 1 && !forceList) {
     await openRegistry(events[0].args.tokenId);
     return;
   }
@@ -728,8 +745,8 @@ async function renderDashboard() {
   root.innerHTML = `
     <div class="row-between">
       <div>
-        <button class="btn-ghost" id="btn-back-to-list" style="border:none; background:none; color:var(--blueprint); cursor:pointer; padding:0; font-size:13px; margin-bottom:4px;">← I tuoi registri</button>
-        <h2 style="margin:0;">Il tuo Registro</h2>
+        <button class="btn btn-ghost" id="btn-back-to-list" style="padding:6px 12px; font-size:13px; margin-bottom:10px;">← I tuoi registri</button>
+        <h2 style="margin:0;">${escapeHtml(state.registryLabel || "Registro senza nome")}</h2>
         <div class="mono">${state.tokenId}</div>
       </div>
       <div class="row">
@@ -742,7 +759,9 @@ async function renderDashboard() {
         <div><strong>${supplierCount}</strong> <span class="muted">/ ${maxSuppliers} fornitori</span></div>
         ${schemaVersions === 0n
           ? `<span class="badge badge-amber">Schema non ancora definito</span>`
-          : `<span class="badge badge-public">Schema v${schemaVersions - 1n}</span>`}
+          : schemaVersions === 1n
+            ? `<span class="badge badge-public">Schema definito</span>`
+            : `<span class="badge badge-public">Schema attuale: versione ${schemaVersions}</span>`}
       </div>
     </div>
 
@@ -760,7 +779,7 @@ async function renderDashboard() {
   if (state.isOwner) $("btn-unlock").addEventListener("click", () => openPinModal());
   $("btn-back-to-list").addEventListener("click", () => {
     state.cryptoKey = null; // si esce dal registro, la chiave non deve sopravvivere al cambio contesto
-    renderRegistrySelector();
+    renderRegistrySelector(true);
   });
 }
 
@@ -794,13 +813,21 @@ function wireSchemaSetup() {
     if (params.length === 0) { $("schema-status").textContent = "Inserisci almeno un criterio."; return; }
     if (min >= max) { $("schema-status").textContent = "Il minimo deve essere inferiore al massimo."; return; }
 
-    $("schema-status").textContent = "Conferma la transazione…";
+    const btn = $("btn-save-schema");
+    const status = $("schema-status");
+    btn.disabled = true;
+    btn.textContent = "Conferma dal wallet…";
+    status.textContent = "Apri l'estensione/app UP per confermare la firma.";
     try {
       const tx = await state.contract.defineSchema(state.tokenId, params, min, max);
+      btn.textContent = "Transazione in corso…";
+      status.textContent = "Transazione inviata, in attesa di conferma on-chain…";
       await tx.wait();
       await renderDashboard();
     } catch (e) {
-      $("schema-status").textContent = explainRevert(e);
+      status.textContent = explainRevert(e);
+      btn.disabled = false;
+      btn.textContent = "Salva schema";
     }
   });
 }
@@ -884,98 +911,117 @@ async function renderEvaluationsForSupplier(supplierId) {
     return;
   }
 
-  container.innerHTML = events.map(ev => {
-    const { evaluationId, isPublic, contentHash, supersedes } = ev.args;
-    return `
-      <div style="padding:8px 0; border-top:1px solid var(--powder-line);">
-        <div class="row-between">
-          <span class="mono">#${evaluationId} · ${contentHash.slice(0, 14)}…${supersedes > 0n ? ` (corregge #${supersedes})` : ""}</span>
-          <span class="badge ${isPublic ? "badge-public" : "badge-private"}">${isPublic ? "Pubblica" : "Privata"}</span>
-        </div>
-        <div class="muted" id="eval-date-${supplierId}-${evaluationId}" style="font-size:12px; margin-top:2px;">Data…</div>
-        <div id="eval-detail-${supplierId}-${evaluationId}" style="margin-top:6px;">
-          <span class="muted">Caricamento…</span>
-        </div>
-      </div>`;
-  }).join("");
+  container.innerHTML = `<div class="muted">Caricamento…</div>`;
 
-  for (const ev of events) {
-    resolveEvaluationContent(supplierId, ev.args);
-    resolveEvaluationDate(supplierId, ev);
+  // Risolvo tutto PRIMA di disegnare la lista, cosi' posso ordinarla per
+  // data DI RIFERIMENTO (quella scelta da chi ha scritto la valutazione)
+  // invece che per ordine di scrittura sulla blockchain — importante per
+  // chi importa uno storico: altrimenti una valutazione vecchia importata
+  // oggi finirebbe in cima solo perche' e' stata registrata per ultima.
+  const resolved = await Promise.all(events.map(async (ev) => {
+    const { evaluationId, isPublic, contentHash, supersedes, uri } = ev.args;
+    let payload = null;
+    const locked = !isPublic && !state.cryptoKey;
+
+    if (!locked) {
+      try {
+        const bytes = await fetchFromIPFS(uri);
+        payload = isPublic
+          ? JSON.parse(new TextDecoder().decode(bytes))
+          : await decryptJSON(bytes, state.cryptoKey);
+      } catch {
+        payload = null;
+      }
+    }
+
+    let blockTimestampMs = null;
+    try {
+      const block = await ev.getBlock();
+      blockTimestampMs = Number(block.timestamp) * 1000;
+    } catch { /* resta null, va bene */ }
+
+    // Chiave di ordinamento: la data di riferimento se la conosciamo (in
+    // chiaro o decifrata), altrimenti il timestamp del blocco come ripiego
+    // migliore disponibile (es. valutazione ancora bloccata, dato mancante).
+    const sortTimeMs = payload?.data
+      ? new Date(payload.data + "T00:00:00").getTime()
+      : (blockTimestampMs ?? 0);
+
+    return { evaluationId, isPublic, contentHash, supersedes, uri, payload, locked, blockTimestampMs, sortTimeMs };
+  }));
+
+  resolved.sort((a, b) => b.sortTimeMs - a.sortTimeMs); // piu' recenti (per data di riferimento) prima
+
+  container.innerHTML = resolved.map(r => `
+    <div style="padding:8px 0; border-top:1px solid var(--powder-line);">
+      <div class="row-between">
+        <span class="mono">#${r.evaluationId} · ${r.contentHash.slice(0, 14)}…${r.supersedes > 0n ? ` (corregge #${r.supersedes})` : ""}</span>
+        <span class="badge ${r.isPublic ? "badge-public" : "badge-private"}">${r.isPublic ? "Pubblica" : "Privata"}</span>
+      </div>
+      <div class="muted" style="font-size:12px; margin-top:2px;">
+        ${r.blockTimestampMs ? "Registrata il " + new Date(r.blockTimestampMs).toLocaleDateString("it-IT", { year: "numeric", month: "long", day: "numeric" }) : ""}
+      </div>
+      <div id="eval-detail-${supplierId}-${r.evaluationId}" style="margin-top:6px;"></div>
+    </div>
+  `).join("");
+
+  for (const r of resolved) {
+    renderEvaluationDetail(supplierId, r);
   }
 }
 
-// La data non e' un campo scritto a mano nel JSON (non verificabile, e'
-// solo cio' che il dispositivo di chi scrive pensa sia la data) — e' il
-// timestamp del blocco in cui la transazione e' stata minata, letto dalla
-// catena stessa. Un'informazione, non un dato aggiuntivo da salvare.
-async function resolveEvaluationDate(supplierId, ev) {
-  const el = $(`eval-date-${supplierId}-${ev.args.evaluationId}`);
-  if (!el) return;
-  try {
-    const block = await ev.getBlock();
-    const date = new Date(Number(block.timestamp) * 1000);
-    el.textContent = "Registrata il " + date.toLocaleDateString("it-IT", { year: "numeric", month: "long", day: "numeric" });
-  } catch {
-    el.textContent = "";
-  }
-}
-
-// Decifra (se privata e la chiave e' sbloccata) o legge in chiaro (se
-// pubblica) il contenuto vero della valutazione — criteri e note, non
-// solo l'hash. Stessa logica di resolveSupplierName, applicata qui.
-async function resolveEvaluationContent(supplierId, args) {
-  const { evaluationId, uri, isPublic } = args;
-  const el = $(`eval-detail-${supplierId}-${evaluationId}`);
+// Disegna il dettaglio gia' risolto (o il pulsante "Sblocca" se ancora
+// cifrata e senza chiave) — non rifa' MAI fetch/decifratura: quella e'
+// gia' avvenuta in renderEvaluationsForSupplier, prima di poter ordinare.
+function renderEvaluationDetail(supplierId, r) {
+  const el = $(`eval-detail-${supplierId}-${r.evaluationId}`);
   if (!el) return;
 
-  if (!isPublic && !state.cryptoKey) {
+  if (r.locked) {
     el.innerHTML = `<button class="btn btn-ghost" style="padding:4px 10px; font-size:12px;">Sblocca per vedere</button>`;
     el.querySelector("button").addEventListener("click", () => {
-      openPinModal(() => resolveEvaluationContent(supplierId, args));
+      // riparte da capo: risolve di nuovo TUTTO e riordina, non solo questa
+      openPinModal(() => renderEvaluationsForSupplier(supplierId));
     });
     return;
   }
 
-  try {
-    const bytes = await fetchFromIPFS(uri);
-    const payload = isPublic
-      ? JSON.parse(new TextDecoder().decode(bytes))
-      : await decryptJSON(bytes, state.cryptoKey);
+  if (!r.payload) {
+    el.innerHTML = `<span class="muted">Impossibile leggere il contenuto (${r.isPublic ? "dato pubblico" : "chiave errata o dato corrotto"}).</span>`;
+    return;
+  }
 
-    const criteriHtml = Object.entries(payload.criteri || {})
-      .map(([k, v]) => `<div class="row-between" style="font-size:13px;"><span class="muted">${escapeHtml(k)}</span><strong>${escapeHtml(v)}</strong></div>`)
-      .join("");
+  const payload = r.payload;
+  const criteriHtml = Object.entries(payload.criteri || {})
+    .map(([k, v]) => `<div class="row-between" style="font-size:13px;"><span class="muted">${escapeHtml(k)}</span><strong>${escapeHtml(v)}</strong></div>`)
+    .join("");
 
-    el.innerHTML = `
-      ${payload.data ? `<div class="muted" style="font-size:12px;">Riferita al ${escapeHtml(formatDateITA(payload.data))}</div>` : ""}
-      ${criteriHtml}
-      ${payload.note ? `<div class="muted" style="margin-top:4px; font-size:13px;">${escapeHtml(payload.note)}</div>` : ""}
-      ${payload.document ? `<button class="btn btn-ghost" id="doc-btn-${supplierId}-${evaluationId}" style="margin-top:6px; padding:4px 10px; font-size:12px;">📎 ${escapeHtml(payload.document.name)}</button>` : ""}
-    `;
+  el.innerHTML = `
+    ${payload.data ? `<div class="muted" style="font-size:12px;">Riferita al ${escapeHtml(formatDateITA(payload.data))}</div>` : ""}
+    ${criteriHtml}
+    ${payload.note ? `<div class="muted" style="margin-top:4px; font-size:13px;">${escapeHtml(payload.note)}</div>` : ""}
+    ${payload.document ? `<button class="btn btn-ghost" id="doc-btn-${supplierId}-${r.evaluationId}" style="margin-top:6px; padding:4px 10px; font-size:12px;">📎 ${escapeHtml(payload.document.name)}</button>` : ""}
+  `;
 
-    if (payload.document) {
-      $(`doc-btn-${supplierId}-${evaluationId}`).addEventListener("click", async (e) => {
-        const btn = e.target;
-        const originalText = btn.textContent;
-        btn.textContent = "Scaricamento…";
-        btn.disabled = true;
-        try {
-          const docBytes = await fetchFromIPFS(payload.document.uri);
-          const finalBytes = isPublic ? docBytes : await decryptBytes(docBytes, state.cryptoKey);
-          const blob = new Blob([finalBytes], { type: payload.document.type || "application/octet-stream" });
-          const blobUrl = URL.createObjectURL(blob);
-          window.open(blobUrl, "_blank");
-        } catch (err) {
-          btn.textContent = "Errore nell'apertura";
-          return;
-        }
-        btn.textContent = originalText;
-        btn.disabled = false;
-      });
-    }
-  } catch (e) {
-    el.innerHTML = `<span class="muted">Impossibile leggere il contenuto (${isPublic ? "dato pubblico" : "chiave errata o dato corrotto"}).</span>`;
+  if (payload.document) {
+    $(`doc-btn-${supplierId}-${r.evaluationId}`).addEventListener("click", async (e) => {
+      const btn = e.target;
+      const originalText = btn.textContent;
+      btn.textContent = "Scaricamento…";
+      btn.disabled = true;
+      try {
+        const docBytes = await fetchFromIPFS(payload.document.uri);
+        const finalBytes = r.isPublic ? docBytes : await decryptBytes(docBytes, state.cryptoKey);
+        const blob = new Blob([finalBytes], { type: payload.document.type || "application/octet-stream" });
+        const blobUrl = URL.createObjectURL(blob);
+        window.open(blobUrl, "_blank");
+      } catch (err) {
+        btn.textContent = "Errore nell'apertura";
+        return;
+      }
+      btn.textContent = originalText;
+      btn.disabled = false;
+    });
   }
 }
 
@@ -1074,7 +1120,11 @@ async function submitSupplier() {
     return;
   }
 
-  $("supplier-status").textContent = "Cifratura e upload in corso…";
+  const btn = $("supplier-confirm");
+  const status = $("supplier-status");
+  btn.disabled = true;
+  btn.textContent = "Attendere…";
+  status.textContent = "Cifratura e upload in corso…";
   try {
     let nameUri, nameHash;
     if (isPublic) {
@@ -1087,15 +1137,21 @@ async function submitSupplier() {
       nameUri = await uploadToIPFS(bytes);
     }
 
-    $("supplier-status").textContent = "Conferma la transazione…";
+    btn.textContent = "Conferma dal wallet…";
+    status.textContent = "Apri l'estensione/app UP per confermare la firma.";
     const tx = await state.contract.addSupplier(state.tokenId, nameHash, nameUri, isPublic);
+    btn.textContent = "Transazione in corso…";
+    status.textContent = "Transazione inviata, in attesa di conferma on-chain…";
     await tx.wait();
 
     $("supplier-modal").classList.remove("open");
     $("supplier-name").value = "";
     await renderDashboard();
   } catch (e) {
-    $("supplier-status").textContent = explainRevert(e);
+    status.textContent = explainRevert(e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Crea fornitore";
   }
 }
 
@@ -1173,7 +1229,11 @@ async function submitEvaluation() {
   }
   const payload = { criteri, note, data: evaluationDate };
 
-  $("evaluation-status").textContent = "Cifratura e upload in corso…";
+  const btn = $("evaluation-confirm");
+  const status = $("evaluation-status");
+  btn.disabled = true;
+  btn.textContent = "Attendere…";
+  status.textContent = "Cifratura e upload in corso…";
   try {
     // Documento allegato (Gold): stessa scelta pubblico/privato della
     // valutazione, stesso meccanismo di cifratura, solo su byte grezzi
@@ -1204,10 +1264,13 @@ async function submitEvaluation() {
       uri = await uploadToIPFS(bytes);
     }
 
-    $("evaluation-status").textContent = "Conferma la transazione…";
+    status.textContent = "Conferma dal wallet…";
+    btn.textContent = "Conferma dal wallet…";
     const tx = await state.contract.addEvaluation(
       state.tokenId, currentSupplierId, schemaVersion, contentHash, uri, isPublic, 0
     );
+    btn.textContent = "Transazione in corso…";
+    status.textContent = "Transazione inviata, in attesa di conferma on-chain…";
     await tx.wait();
 
     modal.classList.remove("open");
@@ -1217,7 +1280,10 @@ async function submitEvaluation() {
     $("evaluation-document").value = "";
     await renderEvaluationsForSupplier(currentSupplierId);
   } catch (e) {
-    $("evaluation-status").textContent = explainRevert(e);
+    status.textContent = explainRevert(e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Salva valutazione";
   }
 }
 
