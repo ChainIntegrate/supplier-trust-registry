@@ -616,6 +616,94 @@ function shortAddr(addr) {
 }
 
 // =======================================================================
+// GATE DI SBLOCCO OBBLIGATORIO — cerca un contenuto privato gia'
+// esistente (fornitore o valutazione) per poter VERIFICARE il codice
+// inserito, non solo chiederlo. Senza un dato contro cui verificare, un
+// codice sbagliato verrebbe accettato in silenzio e produrrebbe scritture
+// cifrate con una chiave diversa dal resto del registro — scoperto solo
+// molto piu' tardi, quando qualcosa smette di decifrarsi.
+// =======================================================================
+async function findPrivateValidationTarget(tokenId) {
+  const supplierEvents = await state.contractReadOnly.queryFilter(
+    state.contractReadOnly.filters.SupplierAdded(tokenId)
+  );
+  const privateSupplier = supplierEvents.find(ev => !ev.args.isNamePublic);
+  if (privateSupplier) return privateSupplier.args.nameUri;
+
+  const evalEvents = await state.contractReadOnly.queryFilter(
+    state.contractReadOnly.filters.EvaluationAdded(tokenId, null)
+  );
+  const privateEval = evalEvents.find(ev => !ev.args.isPublic);
+  if (privateEval) return privateEval.args.uri;
+
+  return null; // nessun contenuto privato ancora — niente contro cui verificare
+}
+
+async function renderUnlockGate(tokenId) {
+  const root = $("app-root");
+  const validationUri = await findPrivateValidationTarget(tokenId);
+  const isFirstTime = !validationUri;
+
+  root.innerHTML = `
+    <div class="empty-state">
+      <h3>${isFirstTime ? "Crea il codice segreto di questo registro" : "Inserisci il codice segreto"}</h3>
+      <p class="muted">
+        ${isFirstTime
+          ? "Sceglilo ora: servirà sempre lo stesso, ogni volta, per leggere e aggiungere dati privati a questo registro."
+          : "Serve per verificare l'accesso e decifrare i dati privati già presenti in questo registro."}
+      </p>
+      ${isFirstTime ? `
+        <div class="warning-box" style="max-width:360px; margin:12px auto 0;">
+          Non esiste un modo per recuperarlo se lo dimentichi. Scrivilo da qualche
+          parte di sicuro prima di continuare.
+        </div>
+      ` : ""}
+      <div style="max-width:320px; margin:16px auto 0; text-align:left;">
+        <label for="gate-pin-input">Codice segreto</label>
+        <input type="password" id="gate-pin-input" autocomplete="off" />
+        ${isFirstTime ? `
+          <label for="gate-pin-confirm">Ripeti il codice</label>
+          <input type="password" id="gate-pin-confirm" autocomplete="off" />
+        ` : ""}
+      </div>
+      <button class="btn" id="gate-unlock-btn" style="margin-top:14px;">${isFirstTime ? "Crea codice" : "Sblocca"}</button>
+      <div id="gate-status" class="muted" style="margin-top:10px;"></div>
+    </div>
+  `;
+
+  $("gate-unlock-btn").addEventListener("click", async () => {
+    const pin = $("gate-pin-input").value;
+    const btn = $("gate-unlock-btn");
+    const status = $("gate-status");
+
+    if (!pin) { status.textContent = "Inserisci un codice."; return; }
+    if (isFirstTime && pin !== $("gate-pin-confirm").value) {
+      status.textContent = "I due codici non coincidono.";
+      return;
+    }
+
+    btn.disabled = true;
+    status.textContent = "Verifica in corso…";
+
+    const candidateKey = await deriveKey(pin, tokenId, CONFIG.REGISTRY_CONTRACT);
+
+    if (!isFirstTime) {
+      try {
+        const bytes = await fetchFromIPFS(validationUri);
+        await decryptJSON(bytes, candidateKey);
+      } catch {
+        status.textContent = "Codice errato — non corrisponde ai dati privati già presenti in questo registro.";
+        btn.disabled = false;
+        return;
+      }
+    }
+
+    state.cryptoKey = candidateKey;
+    await renderDashboard();
+  });
+}
+
+// =======================================================================
 // APERTURA DI UN REGISTRO SPECIFICO — il proprietario si legge SEMPRE
 // dalla catena (tokenOwnerOf), mai assunto dall'indirizzo che ha
 // mintato: con V2 l'unico modo affidabile di sapere "chi possiede questo
@@ -645,7 +733,21 @@ async function openRegistry(tokenId) {
     state.registryLabel = null;
   }
 
-  await renderDashboard();
+  state.cryptoKey = null; // mai ereditare la chiave di un registro precedente
+
+  if (state.isOwner) {
+    // Il proprietario DEVE sbloccare prima di vedere qualunque cosa — non
+    // solo per comodita', ma perche' e' l'unico punto in cui possiamo
+    // verificare il codice contro un dato privato gia' esistente, invece
+    // di scoprire un codice sbagliato solo dopo aver gia' scritto qualcosa
+    // con una chiave diversa dal resto.
+    await renderUnlockGate(tokenId);
+  } else {
+    // Un visitatore non puo' mai decifrare nulla di privato (non conosce
+    // il codice del proprietario) — nessun motivo di fargli vedere un
+    // cancello che non potrebbe comunque superare.
+    await renderDashboard();
+  }
 }
 
 // =======================================================================
@@ -750,7 +852,7 @@ async function renderDashboard() {
         <div class="mono">${state.tokenId}</div>
       </div>
       <div class="row">
-        ${state.isOwner ? `<button class="btn btn-ghost" id="btn-unlock">Inserisci codice segreto</button>` : ""}
+        <!-- Il codice e' gia' garantito sbloccato per arrivare qui (vedi renderUnlockGate) -->
       </div>
     </div>
 
@@ -776,7 +878,6 @@ async function renderDashboard() {
     await renderSuppliers();
     if (state.isOwner) $("btn-add-supplier").addEventListener("click", openSupplierModal);
   }
-  if (state.isOwner) $("btn-unlock").addEventListener("click", () => openPinModal());
   $("btn-back-to-list").addEventListener("click", () => {
     state.cryptoKey = null; // si esce dal registro, la chiave non deve sopravvivere al cambio contesto
     renderRegistrySelector(true);
