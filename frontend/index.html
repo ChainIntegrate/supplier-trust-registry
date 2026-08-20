@@ -234,7 +234,7 @@
 </header>
 
 <main id="app-root">
-  <div class="empty-state">Connessione in corso…</div>
+  <div class="empty-state" id="initial-loading">Connecting…</div>
 </main>
 
 <!-- ===================== MODALE PIN ===================== -->
@@ -251,10 +251,10 @@
       qualche parte di sicuro (un gestore di password, un posto fisico
       sicuro) prima di continuare.
     </div>
-    <label for="pin-input">Codice segreto</label>
+    <label for="pin-input" id="pin-input-label">Codice segreto</label>
     <input type="password" id="pin-input" autocomplete="off" placeholder="Es. una frase che ricordi facilmente" />
     <div id="pin-confirm-row" style="display:none;">
-      <label for="pin-confirm-input">Ripeti il codice</label>
+      <label for="pin-confirm-input" id="pin-confirm-label">Ripeti il codice</label>
       <input type="password" id="pin-confirm-input" autocomplete="off" placeholder="Ripeti lo stesso codice" />
     </div>
     <div class="row" style="margin-top:16px; justify-content:flex-end;">
@@ -268,14 +268,14 @@
 <!-- ===================== MODALE NUOVO FORNITORE ===================== -->
 <div class="modal-backdrop" id="supplier-modal">
   <div class="modal">
-    <h2>Nuovo fornitore</h2>
-    <label for="supplier-name">Nome fornitore</label>
+    <h2 id="supplier-modal-title">Nuovo fornitore</h2>
+    <label for="supplier-name" id="supplier-name-label">Nome fornitore</label>
     <input type="text" id="supplier-name" placeholder="Es. Acme Meccanica Srl" />
 
     <div class="toggle-row">
       <div>
-        <div style="font-weight:600; font-size:13px;">Nome visibile pubblicamente</div>
-        <div class="muted">Se disattivo, il nome resta cifrato — solo tu lo vedi</div>
+        <div id="supplier-public-title" style="font-weight:600; font-size:13px;">Nome visibile pubblicamente</div>
+        <div class="muted" id="supplier-public-desc">Se disattivo, il nome resta cifrato — solo tu lo vedi</div>
       </div>
       <input type="checkbox" id="supplier-public-toggle" style="width:auto;" />
     </div>
@@ -291,16 +291,16 @@
 <!-- ===================== MODALE NUOVA VALUTAZIONE ===================== -->
 <div class="modal-backdrop" id="evaluation-modal">
   <div class="modal">
-    <h2>Nuova valutazione</h2>
+    <h2 id="evaluation-modal-title">Nuova valutazione</h2>
     <div id="evaluation-criteria-fields"></div>
 
-    <label for="evaluation-date">Data a cui si riferisce la valutazione</label>
+    <label for="evaluation-date" id="evaluation-date-label">Data a cui si riferisce la valutazione</label>
     <input type="date" id="evaluation-date" />
 
     <div id="evaluation-document-row" style="display:none;">
-      <label for="evaluation-document">Documento allegato (opzionale)</label>
+      <label for="evaluation-document" id="evaluation-document-label">Documento allegato (opzionale)</label>
       <input type="file" id="evaluation-document" />
-      <div class="muted" style="font-size:12px; margin-top:4px;">
+      <div class="muted" id="evaluation-document-hint" style="font-size:12px; margin-top:4px;">
         Segue la stessa scelta pubblico/privato di questa valutazione.
       </div>
     </div>
@@ -308,13 +308,13 @@
       Allegare un documento richiede la Membership Gold.
     </div>
 
-    <label for="evaluation-note">Note</label>
+    <label for="evaluation-note" id="evaluation-note-label">Note</label>
     <textarea id="evaluation-note" rows="3" placeholder="Osservazioni facoltative"></textarea>
 
     <div class="toggle-row" id="evaluation-public-row">
       <div>
-        <div style="font-weight:600; font-size:13px;">Rendi pubblica questa valutazione</div>
-        <div class="muted">Chiunque legga la blockchain potrà leggerla — per sempre</div>
+        <div id="evaluation-public-title" style="font-weight:600; font-size:13px;">Rendi pubblica questa valutazione</div>
+        <div class="muted" id="evaluation-public-desc">Chiunque legga la blockchain potrà leggerla — per sempre</div>
       </div>
       <input type="checkbox" id="evaluation-public-toggle" style="width:auto;" />
     </div>
@@ -390,6 +390,323 @@ const state = {
 };
 
 const $ = (id) => document.getElementById(id);
+
+// =======================================================================
+// I18N — inglese di default, italiano solo se il browser lo dichiara tra
+// le sue lingue preferite. Dizionario centralizzato invece di if sparsi
+// nel codice: piu' facile da mantenere e da verificare che nulla resti
+// non tradotto.
+// =======================================================================
+const LANG = (navigator.languages || [navigator.language || "en"])
+  .some(l => l.toLowerCase().startsWith("it")) ? "it" : "en";
+
+const I18N = {
+  it: {
+    pageTitle: "Supplier Trust Registry — ChainIntegrate",
+    connecting: "Connessione in corso…",
+    connectButton: "Connetti Universal Profile",
+    noExtension: "Nessuna estensione Universal Profile rilevata. Installa la UP Browser Extension per continuare (o, da mobile, apri questa pagina dal browser integrato nella tua app wallet).",
+    noAccount: "Nessun account collegato.",
+
+    secretCode: "Codice segreto",
+    pinPlaceholder: "Es. una frase che ricordi facilmente",
+    repeatCode: "Ripeti il codice",
+    repeatCodePlaceholder: "Ripeti lo stesso codice",
+    cancel: "Annulla",
+    continueBtn: "Continua",
+    pinWarningText: "Non esiste un modo per recuperarlo se lo dimentichi. Scrivilo da qualche parte di sicuro (un gestore di password, un posto fisico sicuro) prima di continuare.",
+
+    createCodeTitle: "Crea il tuo codice segreto",
+    enterCodeTitle: "Inserisci il tuo codice segreto",
+    createCodeDesc: "Sceglilo ora: ti servirà sempre lo stesso, ogni volta, per leggere e aggiungere dati privati a questo registro.",
+    enterCodeDesc: "Lo stesso codice che hai scelto la prima volta — serve per decifrare i dati privati già presenti.",
+    createCodeBtn: "Crea codice",
+    unlockBtn: "Sblocca",
+    emptyCodeError: "Inserisci un codice.",
+    codesDontMatch: "I due codici non coincidono.",
+
+    newSupplierTitle: "Nuovo fornitore",
+    supplierNameLabel: "Nome fornitore",
+    supplierNamePlaceholder: "Es. Acme Meccanica Srl",
+    supplierPublicTitle: "Nome visibile pubblicamente",
+    supplierPublicDesc: "Se disattivo, il nome resta cifrato — solo tu lo vedi",
+    createSupplierBtn: "Crea fornitore",
+
+    newEvaluationTitle: "Nuova valutazione",
+    evaluationDateLabel: "Data a cui si riferisce la valutazione",
+    documentLabel: "Documento allegato (opzionale)",
+    documentHint: "Segue la stessa scelta pubblico/privato di questa valutazione.",
+    documentLocked: "Allegare un documento richiede la Membership Gold.",
+    noteLabel: "Note",
+    notePlaceholder: "Osservazioni facoltative",
+    makePublicTitle: "Rendi pubblica questa valutazione",
+    makePublicDesc: "Chiunque legga la blockchain potrà leggerla — per sempre",
+    makePublicWarning: "Una volta resa pubblica, questa valutazione è leggibile da chiunque, per sempre. Anche disattivando di nuovo l'interruttore in futuro, il contenuto già pubblicato resta recuperabile da chi lo ha già scaricato.",
+    saveEvaluationBtn: "Salva valutazione",
+
+    verifying: "Verifica in corso…",
+    wrongCode: "Codice errato — non corrisponde ai dati privati già presenti in questo registro.",
+
+    yourRegistries: "I tuoi Registri",
+    usedOfTier: "{count} / {max} usati per il tuo tier",
+    registryFallbackName: "Registro #{index}",
+    openBtn: "Apri",
+    noMembershipTitle: "Nessuna Membership riconosciuta",
+    noMembershipDesc: "Serve almeno una Membership ChainIntegrate (Bronze o superiore)<br/>collegata a questa Universal Profile per poter mintare un Registro.",
+    mintFirstTitle: "Minta il tuo primo Registro",
+    mintNewTitle: "Nuovo Registro",
+    mintLabelLabel: 'Etichetta (es. "Fornitori di servizi")',
+    mintLabelPlaceholder: "Un nome per riconoscerlo",
+    mintBtn: "Minta",
+    maxRegistriesReached: "Hai raggiunto il numero massimo di registri per il tuo tier ({max}).",
+    confirmFromWallet: "Conferma dal wallet…",
+    openExtensionToSign: "Apri l'estensione/app UP per confermare la firma.",
+    txInProgress: "Transazione in corso…",
+    txPendingConfirmation: "Transazione inviata, in attesa di conferma on-chain — può richiedere qualche secondo.",
+    registryMintedOpening: "Registro mintato, apertura in corso…",
+    noRegistryFound: "Nessun registro trovato per questo tokenId.",
+
+    backToRegistries: "← I tuoi registri",
+    unnamedRegistry: "Registro senza nome",
+    suppliersCount: "{count} / {max} fornitori",
+    ofMaxSuppliers: "/ {max} fornitori",
+    schemaNotDefined: "Schema non ancora definito",
+    schemaDefined: "Schema definito",
+    schemaCurrentVersion: "Schema attuale: versione {v}",
+    addSupplierBtn: "+ Nuovo fornitore",
+
+    defineSchemaTitle: "Definisci i criteri di valutazione",
+    defineSchemaDesc: "Solo la prima volta — versioni successive si possono aggiungere senza perdere lo storico.",
+    criteriaLabel: "Criteri (uno per riga)",
+    criteriaPlaceholder: "Puntualità\nQualità\nDocumentazione\nReattività",
+    minValueLabel: "Valore minimo",
+    maxValueLabel: "Valore massimo",
+    saveSchemaBtn: "Salva schema",
+    atLeastOneCriterion: "Inserisci almeno un criterio.",
+    minLessThanMax: "Il minimo deve essere inferiore al massimo.",
+
+    noSuppliersYet: "Nessun fornitore ancora — inizia aggiungendone uno.",
+    loadingLabel: "…caricamento…",
+    supplierFallbackName: "Fornitore #{id}",
+    publicNameBadge: "Nome pubblico",
+    privateNameBadge: "Nome privato",
+    addEvaluationBtn: "+ Valutazione",
+    supplierDecryptFail: "Fornitore #{id} (impossibile decifrare)",
+
+    noEvaluationsYet: "Nessuna valutazione ancora.",
+    loadingEllipsis: "Caricamento…",
+    correctsHash: " (corregge #{id})",
+    publicBadge: "Pubblica",
+    privateBadge: "Privata",
+    registeredOn: "Registrata il {date}",
+    referredTo: "Riferita al {date}",
+    unlockToSee: "Sblocca per vedere",
+    unreadableContent: "Impossibile leggere il contenuto ({reason}).",
+    publicDataReason: "dato pubblico",
+    wrongKeyReason: "chiave errata o dato corrotto",
+    downloading: "Scaricamento…",
+    openError: "Errore nell'apertura",
+
+    encryptingUploading: "Cifratura e upload in corso…",
+    pleaseWait: "Attendere…",
+    rangeError: '"{label}" deve essere tra {min} e {max} (hai messo {value}).',
+    emptyValue: "un valore vuoto",
+
+    errRegistryAlreadyMinted: "Hai già un Registro mintato per questa UP.",
+    errNoRecognizedMembership: "Nessuna Membership riconosciuta su questa UP.",
+    errSupplierLimitReached: "Hai raggiunto il numero massimo di fornitori per il tuo tier.",
+    errParamLimitReached: "Troppi criteri per il tuo tier attuale.",
+    errNotRegistryOwner: "Solo il proprietario del Registro può eseguire questa azione.",
+    errSelectiveDisclosureNotAllowed: "La disclosure selettiva richiede il tier Gold o superiore.",
+    errGeneric: "Operazione non riuscita: {msg}",
+    errUnknown: "errore sconosciuto",
+
+    errChallengeUnavailable: "Impossibile ottenere la challenge di autenticazione dal backend.",
+    errAuthRejected: "Autenticazione rifiutata dal backend: {reason}",
+    errUploadFailed: "Upload IPFS fallito (HTTP {status})",
+    errReadFailed: "Lettura IPFS fallita",
+
+    dateLocale: "it-IT",
+  },
+  en: {
+    pageTitle: "Supplier Trust Registry — ChainIntegrate",
+    connecting: "Connecting…",
+    connectButton: "Connect Universal Profile",
+    noExtension: "No Universal Profile extension detected. Install the UP Browser Extension to continue (or, on mobile, open this page from your wallet app's built-in browser).",
+    noAccount: "No account connected.",
+
+    secretCode: "Secret code",
+    pinPlaceholder: "E.g. a phrase you'll easily remember",
+    repeatCode: "Repeat the code",
+    repeatCodePlaceholder: "Repeat the same code",
+    cancel: "Cancel",
+    continueBtn: "Continue",
+    pinWarningText: "There is no way to recover it if you forget it. Write it down somewhere safe (a password manager, a secure physical place) before continuing.",
+
+    createCodeTitle: "Create your secret code",
+    enterCodeTitle: "Enter your secret code",
+    createCodeDesc: "Choose it now: you'll need the exact same one every time, to read and add private data to this registry.",
+    enterCodeDesc: "The same code you chose the first time — needed to decrypt the private data already stored here.",
+    createCodeBtn: "Create code",
+    unlockBtn: "Unlock",
+    emptyCodeError: "Enter a code.",
+    codesDontMatch: "The two codes don't match.",
+
+    newSupplierTitle: "New supplier",
+    supplierNameLabel: "Supplier name",
+    supplierNamePlaceholder: "E.g. Acme Precision Ltd",
+    supplierPublicTitle: "Name publicly visible",
+    supplierPublicDesc: "If off, the name stays encrypted — only you can see it",
+    createSupplierBtn: "Create supplier",
+
+    newEvaluationTitle: "New evaluation",
+    evaluationDateLabel: "Date the evaluation refers to",
+    documentLabel: "Attached document (optional)",
+    documentHint: "Follows the same public/private choice as this evaluation.",
+    documentLocked: "Attaching a document requires Gold Membership.",
+    noteLabel: "Notes",
+    notePlaceholder: "Optional remarks",
+    makePublicTitle: "Make this evaluation public",
+    makePublicDesc: "Anyone reading the blockchain will be able to read it — forever",
+    makePublicWarning: "Once made public, this evaluation is readable by anyone, forever. Even if you switch it back later, content already published remains recoverable by anyone who already downloaded it.",
+    saveEvaluationBtn: "Save evaluation",
+
+    verifying: "Verifying…",
+    wrongCode: "Wrong code — it doesn't match the private data already stored in this registry.",
+
+    yourRegistries: "Your Registries",
+    usedOfTier: "{count} / {max} used for your tier",
+    registryFallbackName: "Registry #{index}",
+    openBtn: "Open",
+    noMembershipTitle: "No recognized Membership",
+    noMembershipDesc: "You need at least a ChainIntegrate Membership (Bronze or higher)<br/>linked to this Universal Profile to mint a Registry.",
+    mintFirstTitle: "Mint your first Registry",
+    mintNewTitle: "New Registry",
+    mintLabelLabel: 'Label (e.g. "Service suppliers")',
+    mintLabelPlaceholder: "A name to recognize it by",
+    mintBtn: "Mint",
+    maxRegistriesReached: "You've reached the maximum number of registries for your tier ({max}).",
+    confirmFromWallet: "Confirm from your wallet…",
+    openExtensionToSign: "Open the UP extension/app to confirm the signature.",
+    txInProgress: "Transaction in progress…",
+    txPendingConfirmation: "Transaction sent, waiting for on-chain confirmation — this can take a few seconds.",
+    registryMintedOpening: "Registry minted, opening…",
+    noRegistryFound: "No registry found for this tokenId.",
+
+    backToRegistries: "← Your registries",
+    unnamedRegistry: "Unnamed registry",
+    suppliersCount: "{count} / {max} suppliers",
+    ofMaxSuppliers: "/ {max} suppliers",
+    schemaNotDefined: "Schema not defined yet",
+    schemaDefined: "Schema defined",
+    schemaCurrentVersion: "Current schema: version {v}",
+    addSupplierBtn: "+ New supplier",
+
+    defineSchemaTitle: "Define the evaluation criteria",
+    defineSchemaDesc: "Only the first time — later versions can be added without losing history.",
+    criteriaLabel: "Criteria (one per line)",
+    criteriaPlaceholder: "Timeliness\nQuality\nDocumentation\nResponsiveness",
+    minValueLabel: "Minimum value",
+    maxValueLabel: "Maximum value",
+    saveSchemaBtn: "Save schema",
+    atLeastOneCriterion: "Enter at least one criterion.",
+    minLessThanMax: "The minimum must be lower than the maximum.",
+
+    noSuppliersYet: "No suppliers yet — start by adding one.",
+    loadingLabel: "…loading…",
+    supplierFallbackName: "Supplier #{id}",
+    publicNameBadge: "Public name",
+    privateNameBadge: "Private name",
+    addEvaluationBtn: "+ Evaluation",
+    supplierDecryptFail: "Supplier #{id} (unable to decrypt)",
+
+    noEvaluationsYet: "No evaluations yet.",
+    loadingEllipsis: "Loading…",
+    correctsHash: " (corrects #{id})",
+    publicBadge: "Public",
+    privateBadge: "Private",
+    registeredOn: "Registered on {date}",
+    referredTo: "Referring to {date}",
+    unlockToSee: "Unlock to view",
+    unreadableContent: "Unable to read the content ({reason}).",
+    publicDataReason: "public data",
+    wrongKeyReason: "wrong key or corrupted data",
+    downloading: "Downloading…",
+    openError: "Error opening",
+
+    encryptingUploading: "Encrypting and uploading…",
+    pleaseWait: "Please wait…",
+    rangeError: '"{label}" must be between {min} and {max} (you entered {value}).',
+    emptyValue: "an empty value",
+
+    errRegistryAlreadyMinted: "You already have a Registry minted for this UP.",
+    errNoRecognizedMembership: "No recognized Membership on this UP.",
+    errSupplierLimitReached: "You've reached the maximum number of suppliers for your tier.",
+    errParamLimitReached: "Too many criteria for your current tier.",
+    errNotRegistryOwner: "Only the Registry owner can perform this action.",
+    errSelectiveDisclosureNotAllowed: "Selective disclosure requires Gold tier or higher.",
+    errGeneric: "Operation failed: {msg}",
+    errUnknown: "unknown error",
+
+    errChallengeUnavailable: "Unable to get the authentication challenge from the backend.",
+    errAuthRejected: "Authentication rejected by the backend: {reason}",
+    errUploadFailed: "IPFS upload failed (HTTP {status})",
+    errReadFailed: "IPFS read failed",
+
+    dateLocale: "en-GB",
+  },
+};
+
+function t(key, vars) {
+  let str = I18N[LANG][key];
+  if (str === undefined) { console.warn("Missing i18n key:", key); return key; }
+  if (vars) {
+    for (const [k, v] of Object.entries(vars)) {
+      str = str.replaceAll(`{${k}}`, v);
+    }
+  }
+  return str;
+}
+
+// Traduce gli elementi statici presenti gia' nell'HTML al caricamento
+// (quelli che JS non riscrive mai, o li riscrive solo dopo un'azione
+// dell'utente — qui fissiamo il valore iniziale corretto).
+function applyStaticTranslations() {
+  document.title = t("pageTitle");
+  document.documentElement.lang = LANG;
+  $("btn-connect").textContent = t("connectButton");
+  $("initial-loading").textContent = t("connecting");
+
+  $("pin-input-label").textContent = t("secretCode");
+  $("pin-input").placeholder = t("pinPlaceholder");
+  $("pin-confirm-label").textContent = t("repeatCode");
+  $("pin-confirm-input").placeholder = t("repeatCodePlaceholder");
+  $("pin-modal-warning").textContent = t("pinWarningText");
+  $("pin-cancel").textContent = t("cancel");
+  $("pin-confirm").textContent = t("continueBtn");
+
+  $("supplier-modal-title").textContent = t("newSupplierTitle");
+  $("supplier-name-label").textContent = t("supplierNameLabel");
+  $("supplier-name").placeholder = t("supplierNamePlaceholder");
+  $("supplier-public-title").textContent = t("supplierPublicTitle");
+  $("supplier-public-desc").textContent = t("supplierPublicDesc");
+  $("supplier-cancel").textContent = t("cancel");
+  $("supplier-confirm").textContent = t("createSupplierBtn");
+
+  $("evaluation-modal-title").textContent = t("newEvaluationTitle");
+  $("evaluation-date-label").textContent = t("evaluationDateLabel");
+  $("evaluation-document-label").textContent = t("documentLabel");
+  $("evaluation-document-hint").textContent = t("documentHint");
+  $("evaluation-document-locked").textContent = t("documentLocked");
+  $("evaluation-note-label").textContent = t("noteLabel");
+  $("evaluation-note").placeholder = t("notePlaceholder");
+  $("evaluation-public-title").textContent = t("makePublicTitle");
+  $("evaluation-public-desc").textContent = t("makePublicDesc");
+  $("evaluation-public-warning").textContent = t("makePublicWarning");
+  $("evaluation-cancel").textContent = t("cancel");
+  $("evaluation-confirm").textContent = t("saveEvaluationBtn");
+}
+
 
 // =======================================================================
 // CRIPTOGRAFIA — PBKDF2 (SubtleCrypto nativo) + AES-256-GCM
@@ -482,7 +799,7 @@ async function ensureSession() {
     body: JSON.stringify({ address }),
   });
   if (!challengeRes.ok) {
-    throw new Error("Impossibile ottenere la challenge di autenticazione dal backend.");
+    throw new Error(t("errChallengeUnavailable"));
   }
   const { message } = await challengeRes.json();
 
@@ -496,7 +813,7 @@ async function ensureSession() {
   });
   if (!verifyRes.ok) {
     const body = await verifyRes.json().catch(() => ({}));
-    throw new Error("Autenticazione rifiutata dal backend: " + (body.error || verifyRes.status));
+    throw new Error(t("errAuthRejected", { reason: body.error || verifyRes.status }));
   }
 
   const { token } = await verifyRes.json();
@@ -530,7 +847,7 @@ async function uploadToIPFS(bytes) {
       // automaticamente qui per non nascondere l'errore all'utente
       state.sessionToken = null;
     }
-    throw new Error("Upload IPFS fallito (HTTP " + res.status + ")");
+    throw new Error(t("errUploadFailed", { status: res.status }));
   }
   const { cid } = await res.json();
   return `ipfs://${cid}`;
@@ -539,7 +856,7 @@ async function uploadToIPFS(bytes) {
 async function fetchFromIPFS(uri) {
   const cid = uri.replace("ipfs://", "");
   const res = await fetch(`https://${CONFIG.PINATA_GATEWAY}/ipfs/${cid}`);
-  if (!res.ok) throw new Error("Lettura IPFS fallita");
+  if (!res.ok) throw new Error(t("errReadFailed"));
   return new Uint8Array(await res.arrayBuffer());
 }
 
@@ -553,11 +870,7 @@ async function fetchFromIPFS(uri) {
 // =======================================================================
 async function connect() {
   if (!window.lukso) {
-    renderError(
-      "Nessuna estensione Universal Profile rilevata. Installa la UP Browser " +
-      "Extension per continuare (o, da mobile, apri questa pagina dal browser " +
-      "integrato nella tua app wallet)."
-    );
+    renderError(t("noExtension"));
     return;
   }
 
@@ -566,7 +879,7 @@ async function connect() {
   state.visitorAccount = accounts[0] || null;
 
   if (!state.visitorAccount) {
-    renderError("Nessun account collegato.");
+    renderError(t("noAccount"));
     return;
   }
 
@@ -597,11 +910,11 @@ async function connect() {
 // quindi un contenuto malevolo scritto da un proprietario finirebbe
 // eseguito nel browser di un visitatore ignaro. Mai interpolare testo
 // utente in innerHTML senza passare da qui.
-function formatDateITA(isoDate) {
+function formatDate(isoDate) {
   // isoDate atteso in formato YYYY-MM-DD (dall'input type="date")
   const d = new Date(isoDate + "T00:00:00");
   if (Number.isNaN(d.getTime())) return isoDate;
-  return d.toLocaleDateString("it-IT", { year: "numeric", month: "long", day: "numeric" });
+  return d.toLocaleDateString(t("dateLocale"), { year: "numeric", month: "long", day: "numeric" });
 }
 
 function escapeHtml(str) {
@@ -646,27 +959,22 @@ async function renderUnlockGate(tokenId) {
 
   root.innerHTML = `
     <div class="empty-state">
-      <h3>${isFirstTime ? "Crea il codice segreto di questo registro" : "Inserisci il codice segreto"}</h3>
-      <p class="muted">
-        ${isFirstTime
-          ? "Sceglilo ora: servirà sempre lo stesso, ogni volta, per leggere e aggiungere dati privati a questo registro."
-          : "Serve per verificare l'accesso e decifrare i dati privati già presenti in questo registro."}
-      </p>
+      <h3>${isFirstTime ? t("createCodeTitle") : t("enterCodeTitle")}</h3>
+      <p class="muted">${isFirstTime ? t("createCodeDesc") : t("enterCodeDesc")}</p>
       ${isFirstTime ? `
         <div class="warning-box" style="max-width:360px; margin:12px auto 0;">
-          Non esiste un modo per recuperarlo se lo dimentichi. Scrivilo da qualche
-          parte di sicuro prima di continuare.
+          ${t("pinWarningText")}
         </div>
       ` : ""}
       <div style="max-width:320px; margin:16px auto 0; text-align:left;">
-        <label for="gate-pin-input">Codice segreto</label>
+        <label for="gate-pin-input">${t("secretCode")}</label>
         <input type="password" id="gate-pin-input" autocomplete="off" />
         ${isFirstTime ? `
-          <label for="gate-pin-confirm">Ripeti il codice</label>
+          <label for="gate-pin-confirm">${t("repeatCode")}</label>
           <input type="password" id="gate-pin-confirm" autocomplete="off" />
         ` : ""}
       </div>
-      <button class="btn" id="gate-unlock-btn" style="margin-top:14px;">${isFirstTime ? "Crea codice" : "Sblocca"}</button>
+      <button class="btn" id="gate-unlock-btn" style="margin-top:14px;">${isFirstTime ? t("createCodeBtn") : t("unlockBtn")}</button>
       <div id="gate-status" class="muted" style="margin-top:10px;"></div>
     </div>
   `;
@@ -676,14 +984,14 @@ async function renderUnlockGate(tokenId) {
     const btn = $("gate-unlock-btn");
     const status = $("gate-status");
 
-    if (!pin) { status.textContent = "Inserisci un codice."; return; }
+    if (!pin) { status.textContent = t("emptyCodeError"); return; }
     if (isFirstTime && pin !== $("gate-pin-confirm").value) {
-      status.textContent = "I due codici non coincidono.";
+      status.textContent = t("codesDontMatch");
       return;
     }
 
     btn.disabled = true;
-    status.textContent = "Verifica in corso…";
+    status.textContent = t("verifying");
 
     const candidateKey = await deriveKey(pin, tokenId, CONFIG.REGISTRY_CONTRACT);
 
@@ -692,7 +1000,7 @@ async function renderUnlockGate(tokenId) {
         const bytes = await fetchFromIPFS(validationUri);
         await decryptJSON(bytes, candidateKey);
       } catch {
-        status.textContent = "Codice errato — non corrisponde ai dati privati già presenti in questo registro.";
+        status.textContent = t("wrongCode");
         btn.disabled = false;
         return;
       }
@@ -714,7 +1022,7 @@ async function openRegistry(tokenId) {
   try {
     owner = await state.contractReadOnly.tokenOwnerOf(tokenId);
   } catch (e) {
-    renderError("Nessun registro trovato per questo tokenId.");
+    renderError(t("noRegistryFound"));
     return;
   }
   state.tokenId = tokenId;
@@ -774,34 +1082,34 @@ async function renderRegistrySelector(forceList = false) {
 
   root.innerHTML = `
     ${events.length > 0 ? `
-      <h2 style="margin-bottom:4px;">I tuoi Registri</h2>
-      <p class="muted" style="margin-top:0;">${events.length} / ${maxRegistries} usati per il tuo tier</p>
+      <h2 style="margin-bottom:4px;">${t("yourRegistries")}</h2>
+      <p class="muted" style="margin-top:0;">${t("usedOfTier", { count: events.length, max: maxRegistries })}</p>
       <div class="card">
         ${events.map(ev => `
           <div class="row-between" style="padding:10px 0; border-top:1px solid var(--powder-line);">
             <div>
-              <strong>${escapeHtml(ev.args.label || ("Registro #" + ev.args.index))}</strong>
+              <strong>${escapeHtml(ev.args.label || t("registryFallbackName", { index: ev.args.index }))}</strong>
               <div class="mono" style="font-size:11px;">${ev.args.tokenId.slice(0, 18)}…</div>
             </div>
-            <button class="btn btn-ghost open-registry-btn" data-token-id="${ev.args.tokenId}">Apri</button>
+            <button class="btn btn-ghost open-registry-btn" data-token-id="${ev.args.tokenId}">${t("openBtn")}</button>
           </div>
         `).join("")}
       </div>
     ` : ""}
     ${maxRegistries === 0 ? `
       <div class="empty-state">
-        <h3>Nessuna Membership riconosciuta</h3>
-        <p class="muted">Serve almeno una Membership ChainIntegrate (Bronze o superiore)<br/>collegata a questa Universal Profile per poter mintare un Registro.</p>
+        <h3>${t("noMembershipTitle")}</h3>
+        <p class="muted">${t("noMembershipDesc")}</p>
       </div>
     ` : canMintMore ? `
       <div class="card">
-        <h3>${events.length === 0 ? "Minta il tuo primo Registro" : "Nuovo Registro"}</h3>
-        <label for="mint-label">Etichetta (es. "Fornitori di servizi")</label>
-        <input type="text" id="mint-label" placeholder="Un nome per riconoscerlo" />
-        <button class="btn" id="btn-mint" style="margin-top:12px;">Minta</button>
+        <h3>${events.length === 0 ? t("mintFirstTitle") : t("mintNewTitle")}</h3>
+        <label for="mint-label">${t("mintLabelLabel")}</label>
+        <input type="text" id="mint-label" placeholder="${t("mintLabelPlaceholder")}" />
+        <button class="btn" id="btn-mint" style="margin-top:12px;">${t("mintBtn")}</button>
         <div id="mint-status" class="muted" style="margin-top:8px;"></div>
       </div>
-    ` : `<p class="muted">Hai raggiunto il numero massimo di registri per il tuo tier (${maxRegistries}).</p>`}
+    ` : `<p class="muted">${t("maxRegistriesReached", { max: maxRegistries })}</p>`}
   `;
 
   root.querySelectorAll(".open-registry-btn").forEach(btn => {
@@ -810,18 +1118,18 @@ async function renderRegistrySelector(forceList = false) {
 
   if ($("btn-mint")) {
     $("btn-mint").addEventListener("click", async () => {
-      const label = $("mint-label").value.trim() || "Registro senza nome";
+      const label = $("mint-label").value.trim() || t("unnamedRegistry");
       const btn = $("btn-mint");
       const status = $("mint-status");
       btn.disabled = true;
-      btn.textContent = "Conferma dal wallet…";
-      status.textContent = "Apri l'estensione/app UP per confermare la firma.";
+      btn.textContent = t("confirmFromWallet");
+      status.textContent = t("openExtensionToSign");
       try {
         const tx = await state.contract.mintRegistry(label);
-        btn.textContent = "Transazione in corso…";
-        status.textContent = "Transazione inviata, in attesa di conferma on-chain — può richiedere qualche secondo.";
+        btn.textContent = t("txInProgress");
+        status.textContent = t("txPendingConfirmation");
         const receipt = await tx.wait();
-        status.textContent = "Registro mintato, apertura in corso…";
+        status.textContent = t("registryMintedOpening");
         const minted = receipt.logs
           .map(l => { try { return state.contract.interface.parseLog(l); } catch { return null; } })
           .find(e => e && e.name === "RegistryMinted");
@@ -829,7 +1137,7 @@ async function renderRegistrySelector(forceList = false) {
       } catch (e) {
         status.textContent = explainRevert(e);
         btn.disabled = false;
-        btn.textContent = "Minta";
+        btn.textContent = t("mintBtn");
       }
     });
   }
@@ -847,8 +1155,8 @@ async function renderDashboard() {
   root.innerHTML = `
     <div class="row-between">
       <div>
-        <button class="btn btn-ghost" id="btn-back-to-list" style="padding:6px 12px; font-size:13px; margin-bottom:10px;">← I tuoi registri</button>
-        <h2 style="margin:0;">${escapeHtml(state.registryLabel || "Registro senza nome")}</h2>
+        <button class="btn btn-ghost" id="btn-back-to-list" style="padding:6px 12px; font-size:13px; margin-bottom:10px;">${t("backToRegistries")}</button>
+        <h2 style="margin:0;">${escapeHtml(state.registryLabel || t("unnamedRegistry"))}</h2>
         <div class="mono">${state.tokenId}</div>
       </div>
       <div class="row">
@@ -858,18 +1166,18 @@ async function renderDashboard() {
 
     <div class="card" style="margin-top:20px;">
       <div class="row-between">
-        <div><strong>${supplierCount}</strong> <span class="muted">/ ${maxSuppliers} fornitori</span></div>
+        <div><strong>${supplierCount}</strong> <span class="muted">${t("ofMaxSuppliers", { max: maxSuppliers })}</span></div>
         ${schemaVersions === 0n
-          ? `<span class="badge badge-amber">Schema non ancora definito</span>`
+          ? `<span class="badge badge-amber">${t("schemaNotDefined")}</span>`
           : schemaVersions === 1n
-            ? `<span class="badge badge-public">Schema definito</span>`
-            : `<span class="badge badge-public">Schema attuale: versione ${schemaVersions}</span>`}
+            ? `<span class="badge badge-public">${t("schemaDefined")}</span>`
+            : `<span class="badge badge-public">${t("schemaCurrentVersion", { v: schemaVersions })}</span>`}
       </div>
     </div>
 
     ${schemaVersions === 0n && state.isOwner ? renderSchemaSetup() : ""}
     ${schemaVersions > 0n ? `<div id="suppliers-list"></div>` : ""}
-    ${schemaVersions > 0n && state.isOwner ? `<button class="btn" id="btn-add-supplier" style="margin-top:8px;">+ Nuovo fornitore</button>` : ""}
+    ${schemaVersions > 0n && state.isOwner ? `<button class="btn" id="btn-add-supplier" style="margin-top:8px;">${t("addSupplierBtn")}</button>` : ""}
     <div id="status-line"></div>
   `;
 
@@ -887,21 +1195,21 @@ async function renderDashboard() {
 function renderSchemaSetup() {
   return `
     <div class="card">
-      <h3>Definisci i criteri di valutazione</h3>
-      <p class="muted">Solo la prima volta — versioni successive si possono aggiungere senza perdere lo storico.</p>
-      <label>Criteri (uno per riga)</label>
-      <textarea id="schema-params" rows="4" placeholder="Puntualità&#10;Qualità&#10;Documentazione&#10;Reattività"></textarea>
+      <h3>${t("defineSchemaTitle")}</h3>
+      <p class="muted">${t("defineSchemaDesc")}</p>
+      <label>${t("criteriaLabel")}</label>
+      <textarea id="schema-params" rows="4" placeholder="${t("criteriaPlaceholder")}"></textarea>
       <div class="row" style="margin-top:10px;">
         <div style="flex:1;">
-          <label>Valore minimo</label>
+          <label>${t("minValueLabel")}</label>
           <input type="number" id="schema-min" value="1" />
         </div>
         <div style="flex:1;">
-          <label>Valore massimo</label>
+          <label>${t("maxValueLabel")}</label>
           <input type="number" id="schema-max" value="10" />
         </div>
       </div>
-      <button class="btn" id="btn-save-schema" style="margin-top:14px;">Salva schema</button>
+      <button class="btn" id="btn-save-schema" style="margin-top:14px;">${t("saveSchemaBtn")}</button>
       <div id="schema-status" class="muted" style="margin-top:8px;"></div>
     </div>`;
 }
@@ -911,24 +1219,24 @@ function wireSchemaSetup() {
     const params = $("schema-params").value.split("\n").map(s => s.trim()).filter(Boolean);
     const min = BigInt($("schema-min").value);
     const max = BigInt($("schema-max").value);
-    if (params.length === 0) { $("schema-status").textContent = "Inserisci almeno un criterio."; return; }
-    if (min >= max) { $("schema-status").textContent = "Il minimo deve essere inferiore al massimo."; return; }
+    if (params.length === 0) { $("schema-status").textContent = t("atLeastOneCriterion"); return; }
+    if (min >= max) { $("schema-status").textContent = t("minLessThanMax"); return; }
 
     const btn = $("btn-save-schema");
     const status = $("schema-status");
     btn.disabled = true;
-    btn.textContent = "Conferma dal wallet…";
-    status.textContent = "Apri l'estensione/app UP per confermare la firma.";
+    btn.textContent = t("confirmFromWallet");
+    status.textContent = t("openExtensionToSign");
     try {
       const tx = await state.contract.defineSchema(state.tokenId, params, min, max);
-      btn.textContent = "Transazione in corso…";
-      status.textContent = "Transazione inviata, in attesa di conferma on-chain…";
+      btn.textContent = t("txInProgress");
+      status.textContent = t("txPendingConfirmation");
       await tx.wait();
       await renderDashboard();
     } catch (e) {
       status.textContent = explainRevert(e);
       btn.disabled = false;
-      btn.textContent = "Salva schema";
+      btn.textContent = t("saveSchemaBtn");
     }
   });
 }
@@ -949,7 +1257,7 @@ async function renderSuppliers() {
     return;
   }
   if (events.length === 0) {
-    container.innerHTML = `<div class="empty-state">Nessun fornitore ancora — inizia aggiungendone uno.</div>`;
+    container.innerHTML = `<div class="empty-state">${t("noSuppliersYet")}</div>`;
     return;
   }
 
@@ -961,14 +1269,14 @@ async function renderSuppliers() {
     card.innerHTML = `
       <div class="row-between">
         <h3 id="supplier-name-${supplierId}">
-          ${isNamePublic ? "…caricamento…" : `Fornitore #${supplierId}`}
+          ${isNamePublic ? t("loadingLabel") : t("supplierFallbackName", { id: supplierId })}
         </h3>
         <span class="badge ${isNamePublic ? "badge-public" : "badge-private"}">
-          ${isNamePublic ? "Nome pubblico" : "Nome privato"}
+          ${isNamePublic ? t("publicNameBadge") : t("privateNameBadge")}
         </span>
       </div>
       <div class="mono" style="margin-top:4px;">nameHash: ${nameHash.slice(0, 18)}…</div>
-      <button class="btn btn-ghost" data-supplier-id="${supplierId}" style="margin-top:10px;">+ Valutazione</button>
+      <button class="btn btn-ghost" data-supplier-id="${supplierId}" style="margin-top:10px;">${t("addEvaluationBtn")}</button>
       <div class="evaluations" id="evaluations-${supplierId}" style="margin-top:12px;"></div>
     `;
     container.appendChild(card);
@@ -994,7 +1302,7 @@ async function resolveSupplierName(supplierId, nameHash, nameUri, isNamePublic) 
     }
     // se privato e nessuna chiave sbloccata, resta "Fornitore #N" (gia' impostato)
   } catch (e) {
-    el.textContent = `Fornitore #${supplierId} (impossibile decifrare)`;
+    el.textContent = t("supplierDecryptFail", { id: supplierId });
   }
 }
 
@@ -1008,11 +1316,11 @@ async function renderEvaluationsForSupplier(supplierId) {
   if (!container) return;
 
   if (events.length === 0) {
-    container.innerHTML = `<div class="muted">Nessuna valutazione ancora.</div>`;
+    container.innerHTML = `<div class="muted">${t("noEvaluationsYet")}</div>`;
     return;
   }
 
-  container.innerHTML = `<div class="muted">Caricamento…</div>`;
+  container.innerHTML = `<div class="muted">${t("loadingEllipsis")}</div>`;
 
   // Risolvo tutto PRIMA di disegnare la lista, cosi' posso ordinarla per
   // data DI RIFERIMENTO (quella scelta da chi ha scritto la valutazione)
@@ -1056,11 +1364,11 @@ async function renderEvaluationsForSupplier(supplierId) {
   container.innerHTML = resolved.map(r => `
     <div style="padding:8px 0; border-top:1px solid var(--powder-line);">
       <div class="row-between">
-        <span class="mono">#${r.evaluationId} · ${r.contentHash.slice(0, 14)}…${r.supersedes > 0n ? ` (corregge #${r.supersedes})` : ""}</span>
-        <span class="badge ${r.isPublic ? "badge-public" : "badge-private"}">${r.isPublic ? "Pubblica" : "Privata"}</span>
+        <span class="mono">#${r.evaluationId} · ${r.contentHash.slice(0, 14)}…${r.supersedes > 0n ? t("correctsHash", { id: r.supersedes }) : ""}</span>
+        <span class="badge ${r.isPublic ? "badge-public" : "badge-private"}">${r.isPublic ? t("publicBadge") : t("privateBadge")}</span>
       </div>
       <div class="muted" style="font-size:12px; margin-top:2px;">
-        ${r.blockTimestampMs ? "Registrata il " + new Date(r.blockTimestampMs).toLocaleDateString("it-IT", { year: "numeric", month: "long", day: "numeric" }) : ""}
+        ${r.blockTimestampMs ? t("registeredOn", { date: new Date(r.blockTimestampMs).toLocaleDateString(t("dateLocale"), { year: "numeric", month: "long", day: "numeric" }) }) : ""}
       </div>
       <div id="eval-detail-${supplierId}-${r.evaluationId}" style="margin-top:6px;"></div>
     </div>
@@ -1079,7 +1387,7 @@ function renderEvaluationDetail(supplierId, r) {
   if (!el) return;
 
   if (r.locked) {
-    el.innerHTML = `<button class="btn btn-ghost" style="padding:4px 10px; font-size:12px;">Sblocca per vedere</button>`;
+    el.innerHTML = `<button class="btn btn-ghost" style="padding:4px 10px; font-size:12px;">${t("unlockToSee")}</button>`;
     el.querySelector("button").addEventListener("click", () => {
       // riparte da capo: risolve di nuovo TUTTO e riordina, non solo questa
       openPinModal(() => renderEvaluationsForSupplier(supplierId));
@@ -1088,7 +1396,7 @@ function renderEvaluationDetail(supplierId, r) {
   }
 
   if (!r.payload) {
-    el.innerHTML = `<span class="muted">Impossibile leggere il contenuto (${r.isPublic ? "dato pubblico" : "chiave errata o dato corrotto"}).</span>`;
+    el.innerHTML = `<span class="muted">${t("unreadableContent", { reason: r.isPublic ? t("publicDataReason") : t("wrongKeyReason") })}</span>`;
     return;
   }
 
@@ -1098,7 +1406,7 @@ function renderEvaluationDetail(supplierId, r) {
     .join("");
 
   el.innerHTML = `
-    ${payload.data ? `<div class="muted" style="font-size:12px;">Riferita al ${escapeHtml(formatDateITA(payload.data))}</div>` : ""}
+    ${payload.data ? `<div class="muted" style="font-size:12px;">${t("referredTo", { date: escapeHtml(formatDate(payload.data)) })}</div>` : ""}
     ${criteriHtml}
     ${payload.note ? `<div class="muted" style="margin-top:4px; font-size:13px;">${escapeHtml(payload.note)}</div>` : ""}
     ${payload.document ? `<button class="btn btn-ghost" id="doc-btn-${supplierId}-${r.evaluationId}" style="margin-top:6px; padding:4px 10px; font-size:12px;">📎 ${escapeHtml(payload.document.name)}</button>` : ""}
@@ -1108,7 +1416,7 @@ function renderEvaluationDetail(supplierId, r) {
     $(`doc-btn-${supplierId}-${r.evaluationId}`).addEventListener("click", async (e) => {
       const btn = e.target;
       const originalText = btn.textContent;
-      btn.textContent = "Scaricamento…";
+      btn.textContent = t("downloading");
       btn.disabled = true;
       try {
         const docBytes = await fetchFromIPFS(payload.document.uri);
@@ -1117,7 +1425,7 @@ function renderEvaluationDetail(supplierId, r) {
         const blobUrl = URL.createObjectURL(blob);
         window.open(blobUrl, "_blank");
       } catch (err) {
-        btn.textContent = "Errore nell'apertura";
+        btn.textContent = t("openError");
         return;
       }
       btn.textContent = originalText;
@@ -1148,15 +1456,11 @@ async function openPinModal(onSuccess) {
     isFirstTime = count === 0n;
   } catch { /* in dubbio, meglio mostrare comunque l'avviso piu' cauto */ }
 
-  $("pin-modal-title").textContent = isFirstTime
-    ? "Crea il tuo codice segreto"
-    : "Inserisci il tuo codice segreto";
-  $("pin-modal-description").textContent = isFirstTime
-    ? "Sceglilo ora: ti servira' sempre lo stesso, ogni volta, per leggere e aggiungere dati privati a questo registro."
-    : "Lo stesso codice che hai scelto la prima volta — serve per decifrare i dati privati gia' presenti.";
+  $("pin-modal-title").textContent = isFirstTime ? t("createCodeTitle") : t("enterCodeTitle");
+  $("pin-modal-description").textContent = isFirstTime ? t("createCodeDesc") : t("enterCodeDesc");
   $("pin-modal-warning").style.display = isFirstTime ? "block" : "none";
   $("pin-confirm-row").style.display = isFirstTime ? "block" : "none";
-  $("pin-confirm").textContent = isFirstTime ? "Crea codice" : "Sblocca";
+  $("pin-confirm").textContent = isFirstTime ? t("createCodeBtn") : t("unlockBtn");
   $("pin-modal-status").textContent = "";
   $("pin-input").value = "";
   $("pin-confirm-input").value = "";
@@ -1176,11 +1480,11 @@ $("pin-confirm").addEventListener("click", async () => {
   const isFirstTime = $("pin-modal").dataset.firstTime === "1";
 
   if (!pin) {
-    $("pin-modal-status").textContent = "Inserisci un codice.";
+    $("pin-modal-status").textContent = t("emptyCodeError");
     return;
   }
   if (isFirstTime && pin !== $("pin-confirm-input").value) {
-    $("pin-modal-status").textContent = "I due codici non coincidono.";
+    $("pin-modal-status").textContent = t("codesDontMatch");
     return;
   }
 
@@ -1224,8 +1528,8 @@ async function submitSupplier() {
   const btn = $("supplier-confirm");
   const status = $("supplier-status");
   btn.disabled = true;
-  btn.textContent = "Attendere…";
-  status.textContent = "Cifratura e upload in corso…";
+  btn.textContent = t("pleaseWait");
+  status.textContent = t("encryptingUploading");
   try {
     let nameUri, nameHash;
     if (isPublic) {
@@ -1238,11 +1542,11 @@ async function submitSupplier() {
       nameUri = await uploadToIPFS(bytes);
     }
 
-    btn.textContent = "Conferma dal wallet…";
-    status.textContent = "Apri l'estensione/app UP per confermare la firma.";
+    btn.textContent = t("confirmFromWallet");
+    status.textContent = t("openExtensionToSign");
     const tx = await state.contract.addSupplier(state.tokenId, nameHash, nameUri, isPublic);
-    btn.textContent = "Transazione in corso…";
-    status.textContent = "Transazione inviata, in attesa di conferma on-chain…";
+    btn.textContent = t("txInProgress");
+    status.textContent = t("txPendingConfirmation");
     await tx.wait();
 
     $("supplier-modal").classList.remove("open");
@@ -1252,7 +1556,7 @@ async function submitSupplier() {
     status.textContent = explainRevert(e);
   } finally {
     btn.disabled = false;
-    btn.textContent = "Crea fornitore";
+    btn.textContent = t("createSupplierBtn");
   }
 }
 
@@ -1322,8 +1626,9 @@ async function submitEvaluation() {
     // hash), e anche per quelle pubbliche non ha modo di rileggere il
     // JSON dopo l'upload. Questo controllo esiste solo qui, lato UI.
     if (Number.isNaN(value) || value < min || value > max) {
-      $("evaluation-status").textContent =
-        `"${label}" deve essere tra ${min} e ${max} (hai messo ${input.value || "un valore vuoto"}).`;
+      $("evaluation-status").textContent = t("rangeError", {
+        label, min, max, value: input.value || t("emptyValue")
+      });
       return;
     }
     criteri[label] = value;
@@ -1333,8 +1638,8 @@ async function submitEvaluation() {
   const btn = $("evaluation-confirm");
   const status = $("evaluation-status");
   btn.disabled = true;
-  btn.textContent = "Attendere…";
-  status.textContent = "Cifratura e upload in corso…";
+  btn.textContent = t("pleaseWait");
+  status.textContent = t("encryptingUploading");
   try {
     // Documento allegato (Gold): stessa scelta pubblico/privato della
     // valutazione, stesso meccanismo di cifratura, solo su byte grezzi
@@ -1365,13 +1670,13 @@ async function submitEvaluation() {
       uri = await uploadToIPFS(bytes);
     }
 
-    status.textContent = "Conferma dal wallet…";
-    btn.textContent = "Conferma dal wallet…";
+    status.textContent = t("confirmFromWallet");
+    btn.textContent = t("confirmFromWallet");
     const tx = await state.contract.addEvaluation(
       state.tokenId, currentSupplierId, schemaVersion, contentHash, uri, isPublic, 0
     );
-    btn.textContent = "Transazione in corso…";
-    status.textContent = "Transazione inviata, in attesa di conferma on-chain…";
+    btn.textContent = t("txInProgress");
+    status.textContent = t("txPendingConfirmation");
     await tx.wait();
 
     modal.classList.remove("open");
@@ -1384,7 +1689,7 @@ async function submitEvaluation() {
     status.textContent = explainRevert(e);
   } finally {
     btn.disabled = false;
-    btn.textContent = "Salva valutazione";
+    btn.textContent = t("saveEvaluationBtn");
   }
 }
 
@@ -1406,20 +1711,21 @@ function explainRevert(e) {
   // ethers v6 decodifica gli errori custom se l'ABI li contiene (li abbiamo inclusi)
   const name = e?.revert?.name || e?.errorName;
   const known = {
-    RegistryAlreadyMinted: "Hai già un Registro mintato per questa UP.",
-    NoRecognizedMembership: "Nessuna Membership riconosciuta su questa UP.",
-    SupplierLimitReached: "Hai raggiunto il numero massimo di fornitori per il tuo tier.",
-    ParamLimitReached: "Troppi criteri per il tuo tier attuale.",
-    NotRegistryOwner: "Solo il proprietario del Registro può eseguire questa azione.",
-    SelectiveDisclosureNotAllowed: "La disclosure selettiva richiede il tier Gold o superiore.",
+    RegistryAlreadyMinted: t("errRegistryAlreadyMinted"),
+    NoRecognizedMembership: t("errNoRecognizedMembership"),
+    SupplierLimitReached: t("errSupplierLimitReached"),
+    ParamLimitReached: t("errParamLimitReached"),
+    NotRegistryOwner: t("errNotRegistryOwner"),
+    SelectiveDisclosureNotAllowed: t("errSelectiveDisclosureNotAllowed"),
   };
   if (name && known[name]) return known[name];
-  return "Operazione non riuscita: " + (e?.shortMessage || e?.message || "errore sconosciuto");
+  return t("errGeneric", { msg: e?.shortMessage || e?.message || t("errUnknown") });
 }
 
 // =======================================================================
 // AVVIO
 // =======================================================================
+applyStaticTranslations();
 $("btn-connect").addEventListener("click", connect);
 </script>
 
