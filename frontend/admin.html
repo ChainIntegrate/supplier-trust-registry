@@ -802,13 +802,25 @@ async function publishRegistryImageAsTokenImage(tokenId, label, btn) {
     const [uri, hash] = await state.contractReadOnly.getRegistryImage(tokenId);
     if (!uri) throw new Error("No custom image set for this registry (list may be stale — refresh).");
 
+    // Dimensioni VERE, non indovinate — l'immagine di un registro puo'
+    // avere qualunque proporzione (chi la carica non e' vincolato a un
+    // quadrato), dichiarare 750x750 a prescindere era lo stesso errore
+    // gia' corretto per la metadata di collezione, rimasto qui per
+    // svista. Una pagina di dettaglio piu' rigorosa puo' rifiutare
+    // un'immagine le cui dimensioni dichiarate non corrispondono a
+    // quelle vere del file, mentre una griglia di anteprime piu'
+    // permissiva la mostra comunque — coerente con quello che si vede.
+    btn.textContent = "Reading image dimensions…";
+    const imageBytes = await fetchFromIPFS(uri);
+    const { width, height } = await getImageDimensions(imageBytes);
+
     const metadataJson = {
       LSP4Metadata: {
         name: label || "Registry",
         description: "",
         links: [],
         icon: [{
-          width: 750, height: 750, // stessa nota della metadata di collezione: dimensione dichiarata, non verificata qui
+          width, height,
           url: uri,
           verification: { method: "keccak256(bytes)", data: hash },
         }],
