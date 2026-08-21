@@ -55,7 +55,7 @@ const rpcProvider = new ethers.JsonRpcProvider(LUKSO_RPC_URL);
 // Solo la funzione di lettura che serve qui — niente ABI completa da
 // mantenere sincronizzata col contratto, un frammento minimo e stabile.
 const REGISTRY_LIMITS_ABI = [
-  "function getEffectiveLimits(address account) view returns (uint256 maxSuppliers, uint256 maxParams, bool canDiscloseSelectively, uint256 maxRegistries)",
+  "function getEffectiveLimits(address account) view returns (uint256 maxSuppliers, uint256 maxParams, bool canDiscloseSelectively, uint256 maxRegistries, bool canCustomizeImage)",
 ];
 const registryContract = new ethers.Contract(REGISTRY_CONTRACT_ADDRESS, REGISTRY_LIMITS_ABI, rpcProvider);
 
@@ -145,9 +145,16 @@ app.post(
 
     if (req.file.size > FREE_UPLOAD_BYTES) {
       try {
-        const [, , canDiscloseSelectively] = await registryContract.getEffectiveLimits(req.upAddress);
-        if (!canDiscloseSelectively) {
-          return res.status(403).json({ error: "gold_tier_required_for_large_upload" });
+        // Sopra la soglia gratuita, basta AVERE una qualunque capacita'
+        // avanzata che giustifichi un upload piu' grande — documenti
+        // allegati alle valutazioni (Gold, canDiscloseSelectively) o
+        // immagine personalizzata del registro (Silver+, canCustomizeImage).
+        // Non distinguiamo QUALE dei due sta caricando: il backend non sa
+        // (ne' deve sapere) il contenuto semantico del file, solo che chi
+        // lo carica ha un tier che lo giustifica.
+        const [, , canDiscloseSelectively, , canCustomizeImage] = await registryContract.getEffectiveLimits(req.upAddress);
+        if (!canDiscloseSelectively && !canCustomizeImage) {
+          return res.status(403).json({ error: "higher_tier_required_for_large_upload" });
         }
       } catch (e) {
         console.error("Verifica tier fallita:", e.message);
