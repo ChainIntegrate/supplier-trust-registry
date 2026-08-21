@@ -99,11 +99,11 @@ app.get("/api/health", (req, res) => res.json({ ok: true }));
 // POST /api/auth/challenge   { address }
 // =======================================================================
 app.post("/api/auth/challenge", authLimiter, (req, res) => {
-  const { address } = req.body || {};
+  const { address, lang } = req.body || {};
   if (!address || !ethers.isAddress(address)) {
     return res.status(400).json({ error: "invalid_address" });
   }
-  const { message, nonce } = createChallenge(address, CHALLENGE_DOMAIN);
+  const { message, nonce } = createChallenge(address, CHALLENGE_DOMAIN, lang);
   res.json({ message, nonce });
 });
 

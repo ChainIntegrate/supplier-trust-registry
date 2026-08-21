@@ -35,14 +35,24 @@ function randomNonce() {
   return ethers.hexlify(ethers.randomBytes(12)).slice(2); // 24 caratteri esadecimali
 }
 
-function buildChallengeMessage({ address, domain, nonce }) {
+// Solo questa riga del messaggio deve essere leggibile per un umano nella
+// sua lingua — tutto il resto (URI, Nonce, Issued At) e' gia' in inglese
+// per convenzione SIWE, non tocca l'utente comune. Il frontend passa la
+// lingua rilevata nel browser; se manca o non e' supportata, inglese.
+const CHALLENGE_DESCRIPTIONS = {
+  it: "Autorizzi il caricamento di un file su IPFS per il tuo Supplier Trust Registry.",
+  en: "You authorize uploading a file to IPFS for your Supplier Trust Registry.",
+};
+
+function buildChallengeMessage({ address, domain, nonce, lang }) {
   const issuedAt = new Date().toISOString();
+  const description = CHALLENGE_DESCRIPTIONS[lang] || CHALLENGE_DESCRIPTIONS.en;
   return [
     `${domain} wants you to sign in with your Universal Profile:`,
     ``,
     address,
     ``,
-    `Autorizzi il caricamento di un file su IPFS per il tuo Supplier Trust Registry.`,
+    description,
     ``,
     `URI: https://${domain}`,
     `Version: 1`,
@@ -51,10 +61,10 @@ function buildChallengeMessage({ address, domain, nonce }) {
   ].join("\n");
 }
 
-function createChallenge(address, domain) {
+function createChallenge(address, domain, lang) {
   const normalized = address.toLowerCase();
   const nonce = randomNonce();
-  const message = buildChallengeMessage({ address, domain, nonce });
+  const message = buildChallengeMessage({ address, domain, nonce, lang });
   pendingChallenges.set(normalized, {
     nonce,
     message,

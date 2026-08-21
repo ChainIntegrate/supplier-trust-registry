@@ -292,42 +292,54 @@
 <div class="modal-backdrop" id="evaluation-modal">
   <div class="modal">
     <h2 id="evaluation-modal-title">Nuova valutazione</h2>
-    <div id="evaluation-criteria-fields"></div>
 
-    <label for="evaluation-date" id="evaluation-date-label">Data a cui si riferisce la valutazione</label>
-    <input type="date" id="evaluation-date" />
+    <div id="evaluation-edit-view">
+      <div id="evaluation-criteria-fields"></div>
 
-    <div id="evaluation-document-row" style="display:none;">
-      <label for="evaluation-document" id="evaluation-document-label">Documento allegato (opzionale)</label>
-      <input type="file" id="evaluation-document" />
-      <div class="muted" id="evaluation-document-hint" style="font-size:12px; margin-top:4px;">
-        Segue la stessa scelta pubblico/privato di questa valutazione.
+      <label for="evaluation-date" id="evaluation-date-label">Data a cui si riferisce la valutazione</label>
+      <input type="date" id="evaluation-date" />
+
+      <div id="evaluation-document-row" style="display:none;">
+        <label for="evaluation-document" id="evaluation-document-label">Documento allegato (opzionale)</label>
+        <input type="file" id="evaluation-document" />
+        <div class="muted" id="evaluation-document-hint" style="font-size:12px; margin-top:4px;">
+          Segue la stessa scelta pubblico/privato di questa valutazione.
+        </div>
+      </div>
+      <div id="evaluation-document-locked" class="muted" style="font-size:12px; display:none;">
+        Allegare un documento richiede la Membership Gold.
+      </div>
+
+      <label for="evaluation-note" id="evaluation-note-label">Note</label>
+      <textarea id="evaluation-note" rows="3" placeholder="Osservazioni facoltative"></textarea>
+
+      <div class="toggle-row" id="evaluation-public-row">
+        <div>
+          <div id="evaluation-public-title" style="font-weight:600; font-size:13px;">Rendi pubblica questa valutazione</div>
+          <div class="muted" id="evaluation-public-desc">Chiunque legga la blockchain potrà leggerla — per sempre</div>
+        </div>
+        <input type="checkbox" id="evaluation-public-toggle" style="width:auto;" />
+      </div>
+      <div class="warning-box" id="evaluation-public-warning" style="display:none;">
+        Una volta resa pubblica, questa valutazione è leggibile da chiunque, per sempre.
+        Anche disattivando di nuovo l'interruttore in futuro, il contenuto già pubblicato
+        resta recuperabile da chi lo ha già scaricato.
+      </div>
+
+      <div class="row" style="margin-top:20px; justify-content:flex-end;">
+        <button class="btn btn-ghost" id="evaluation-cancel">Annulla</button>
+        <button class="btn" id="evaluation-review-btn">Salva valutazione</button>
       </div>
     </div>
-    <div id="evaluation-document-locked" class="muted" style="font-size:12px; display:none;">
-      Allegare un documento richiede la Membership Gold.
-    </div>
 
-    <label for="evaluation-note" id="evaluation-note-label">Note</label>
-    <textarea id="evaluation-note" rows="3" placeholder="Osservazioni facoltative"></textarea>
-
-    <div class="toggle-row" id="evaluation-public-row">
-      <div>
-        <div id="evaluation-public-title" style="font-weight:600; font-size:13px;">Rendi pubblica questa valutazione</div>
-        <div class="muted" id="evaluation-public-desc">Chiunque legga la blockchain potrà leggerla — per sempre</div>
+    <div id="evaluation-review-view" style="display:none;">
+      <div id="evaluation-review-summary"></div>
+      <div class="row" style="margin-top:20px; justify-content:flex-end;">
+        <button class="btn btn-ghost" id="evaluation-back-to-edit">Torna a modificare</button>
+        <button class="btn" id="evaluation-confirm">Conferma e salva</button>
       </div>
-      <input type="checkbox" id="evaluation-public-toggle" style="width:auto;" />
-    </div>
-    <div class="warning-box" id="evaluation-public-warning" style="display:none;">
-      Una volta resa pubblica, questa valutazione è leggibile da chiunque, per sempre.
-      Anche disattivando di nuovo l'interruttore in futuro, il contenuto già pubblicato
-      resta recuperabile da chi lo ha già scaricato.
     </div>
 
-    <div class="row" style="margin-top:20px; justify-content:flex-end;">
-      <button class="btn btn-ghost" id="evaluation-cancel">Annulla</button>
-      <button class="btn" id="evaluation-confirm">Salva valutazione</button>
-    </div>
     <div id="evaluation-status" class="muted" style="margin-top:8px;"></div>
   </div>
 </div>
@@ -444,6 +456,9 @@ const I18N = {
     makePublicWarning: "Una volta resa pubblica, questa valutazione è leggibile da chiunque, per sempre. Anche disattivando di nuovo l'interruttore in futuro, il contenuto già pubblicato resta recuperabile da chi lo ha già scaricato.",
     saveEvaluationBtn: "Salva valutazione",
     changeImageBtn: "Cambia immagine",
+    previousValueLabel: "· prima: {value}",
+    backToEditBtn: "Torna a modificare",
+    confirmAndSaveBtn: "Conferma e salva",
     errImageCustomizationNotAllowed: "L'immagine personalizzata richiede il tier Silver o superiore.",
 
     verifying: "Verifica in corso…",
@@ -573,6 +588,9 @@ const I18N = {
     makePublicWarning: "Once made public, this evaluation is readable by anyone, forever. Even if you switch it back later, content already published remains recoverable by anyone who already downloaded it.",
     saveEvaluationBtn: "Save evaluation",
     changeImageBtn: "Change image",
+    previousValueLabel: "· previous: {value}",
+    backToEditBtn: "Back to edit",
+    confirmAndSaveBtn: "Confirm and save",
     errImageCustomizationNotAllowed: "Custom images require Silver tier or higher.",
 
     verifying: "Verifying…",
@@ -708,7 +726,9 @@ function applyStaticTranslations() {
   $("evaluation-public-desc").textContent = t("makePublicDesc");
   $("evaluation-public-warning").textContent = t("makePublicWarning");
   $("evaluation-cancel").textContent = t("cancel");
-  $("evaluation-confirm").textContent = t("saveEvaluationBtn");
+  $("evaluation-review-btn").textContent = t("saveEvaluationBtn");
+  $("evaluation-back-to-edit").textContent = t("backToEditBtn");
+  $("evaluation-confirm").textContent = t("confirmAndSaveBtn");
 }
 
 
@@ -800,7 +820,7 @@ async function ensureSession() {
   const challengeRes = await fetch("/api/auth/challenge", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ address }),
+    body: JSON.stringify({ address, lang: LANG }),
   });
   if (!challengeRes.ok) {
     throw new Error(t("errChallengeUnavailable"));
@@ -1091,9 +1111,14 @@ async function renderRegistrySelector(forceList = false) {
       <div class="card">
         ${events.map(ev => `
           <div class="row-between" style="padding:10px 0; border-top:1px solid var(--powder-line);">
-            <div>
-              <strong>${escapeHtml(ev.args.label || t("registryFallbackName", { index: ev.args.index }))}</strong>
-              <div class="mono" style="font-size:11px;">${ev.args.tokenId.slice(0, 18)}…</div>
+            <div class="row" style="gap:10px; align-items:center;">
+              <div id="list-image-${ev.args.tokenId}" style="width:36px; height:36px; border-radius:6px; overflow:hidden; background:var(--powder); flex-shrink:0; display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--blueprint); font-size:14px;">
+                ${escapeHtml((ev.args.label || "?").charAt(0).toUpperCase())}
+              </div>
+              <div>
+                <strong>${escapeHtml(ev.args.label || t("registryFallbackName", { index: ev.args.index }))}</strong>
+                <div class="mono" style="font-size:11px;">${ev.args.tokenId.slice(0, 18)}…</div>
+              </div>
             </div>
             <button class="btn btn-ghost open-registry-btn" data-token-id="${ev.args.tokenId}">${t("openBtn")}</button>
           </div>
@@ -1119,6 +1144,10 @@ async function renderRegistrySelector(forceList = false) {
   root.querySelectorAll(".open-registry-btn").forEach(btn => {
     btn.addEventListener("click", () => openRegistry(btn.dataset.tokenId));
   });
+
+  for (const ev of events) {
+    loadListRegistryImage(ev.args.tokenId);
+  }
 
   if ($("btn-mint")) {
     $("btn-mint").addEventListener("click", async () => {
@@ -1217,6 +1246,25 @@ async function renderDashboard() {
 // L'immagine del registro e' sempre pubblica (e' un'identita' visiva, non
 // un dato sensibile — non avrebbe senso cifrare un logo). Nessun toggle
 // pubblico/privato qui, a differenza di fornitori e valutazioni.
+// Stessa logica di loadRegistryImage(), ma per una voce della lista
+// registri (dove il segnaposto e' l'iniziale dell'etichetta, non un
+// registro "aperto" con state.tokenId — qui il tokenId arriva per
+// parametro, uno per ciascuna riga della lista).
+async function loadListRegistryImage(tokenId) {
+  const box = $(`list-image-${tokenId}`);
+  if (!box) return;
+  try {
+    const [uri] = await state.contractReadOnly.getRegistryImage(tokenId);
+    if (!uri) return;
+    const bytes = await fetchFromIPFS(uri);
+    const blob = new Blob([bytes]);
+    const blobUrl = URL.createObjectURL(blob);
+    box.innerHTML = `<img src="${blobUrl}" style="width:100%; height:100%; object-fit:cover;" />`;
+  } catch {
+    // nessuna immagine o lettura fallita: resta l'iniziale, nessun errore mostrato
+  }
+}
+
 async function loadRegistryImage() {
   const box = $("registry-image-box");
   if (!box) return;
@@ -1393,7 +1441,10 @@ async function resolveSupplierName(supplierId, nameHash, nameUri, isNamePublic) 
 // punto finche' non vengono sbloccate — il grafico si aggiorna da solo
 // alla prossima chiamata, non serve altro codice apposta.
 // =======================================================================
-const CHART_COLORS = ["#1D5C9E", "#2E8B7A", "#7B5EA7", "#5C7A99", "#B0709E", "#4A8FA6", "#8A6D3B", "#6B8E23"];
+// Palette scelta per contrasto reciproco (tonalita' ben distanziate sulla
+// ruota colore), non solo per stare nella famiglia "blueprint" — con
+// quella ristretta le linee finivano troppo simili tra loro.
+const CHART_COLORS = ["#1D5C9E", "#1E8E5A", "#8B3FA8", "#C23B7A", "#0E8C8C", "#3B4FC2", "#6B7B1F", "#444444"];
 
 function renderSupplierChart(supplierId, resolved) {
   const container = $(`chart-${supplierId}`);
@@ -1448,6 +1499,17 @@ function renderSupplierChart(supplierId, resolved) {
     </span>
   `).join("");
 
+  const averagesRow = criteriaNames.map((name, i) => {
+    const values = points.map(p => p.criteri[name]).filter(v => v !== undefined);
+    const avg = values.reduce((sum, v) => sum + v, 0) / values.length;
+    return `
+      <div style="text-align:center;">
+        <div style="font-size:10px; color:var(--ink-soft);">${escapeHtml(name)}</div>
+        <div style="font-weight:700; color:${CHART_COLORS[i % CHART_COLORS.length]}; font-size:15px;">${avg.toFixed(1)}</div>
+      </div>
+    `;
+  }).join("");
+
   container.innerHTML = `
     <div style="margin:8px 0 4px;">${legend}</div>
     <svg viewBox="0 0 ${width} ${height}" style="width:100%; height:auto; display:block;">
@@ -1457,6 +1519,9 @@ function renderSupplierChart(supplierId, resolved) {
     <div class="row-between muted" style="font-size:11px; margin-top:2px;">
       <span>${escapeHtml(formatDate(points[0].date))}</span>
       <span>${escapeHtml(formatDate(points[points.length - 1].date))}</span>
+    </div>
+    <div style="display:flex; justify-content:space-around; gap:6px; margin-top:10px; padding:8px; background:var(--powder); border-radius:var(--radius);">
+      ${averagesRow}
     </div>
   `;
 }
@@ -1718,15 +1783,46 @@ async function submitSupplier() {
 // =======================================================================
 let currentSupplierId = null;
 
+// Valori dell'ULTIMA valutazione (per data di riferimento), per mostrarli
+// accanto al campo mentre si compila quella nuova — aiuta a farsi un'idea
+// di dove ci si trova rispetto a prima. Solo valutazioni leggibili (in
+// chiaro o gia' decifrate) possono contribuire; se l'ultima e' ancora
+// bloccata, semplicemente non si mostra nulla (nessun errore).
+async function fetchLatestCriteriaValues(supplierId) {
+  const events = await state.contractReadOnly.queryFilter(
+    state.contractReadOnly.filters.EvaluationAdded(state.tokenId, supplierId)
+  );
+  let best = null;
+  let bestTime = -Infinity;
+
+  for (const ev of events) {
+    const { isPublic, uri } = ev.args;
+    if (!isPublic && !state.cryptoKey) continue;
+    try {
+      const bytes = await fetchFromIPFS(uri);
+      const payload = isPublic ? JSON.parse(new TextDecoder().decode(bytes)) : await decryptJSON(bytes, state.cryptoKey);
+      if (!payload.criteri) continue;
+      const time = payload.data ? new Date(payload.data + "T00:00:00").getTime() : 0;
+      if (time > bestTime) { bestTime = time; best = payload.criteri; }
+    } catch { /* valutazione illeggibile, saltala */ }
+  }
+  return best;
+}
+
 async function openEvaluationModal(supplierId) {
   currentSupplierId = supplierId;
 
   const versionsCount = await state.contractReadOnly.schemaVersionsCount(state.tokenId);
   const latestVersion = versionsCount - 1n;
   const [paramNames, minValue, maxValue] = await state.contractReadOnly.getSchema(state.tokenId, latestVersion);
+  const previousValues = await fetchLatestCriteriaValues(supplierId);
 
   $("evaluation-criteria-fields").innerHTML = paramNames.map((p, i) => `
-    <label for="crit-${i}">${escapeHtml(p)} (${minValue}–${maxValue})</label>
+    <label for="crit-${i}">${escapeHtml(p)} (${minValue}–${maxValue})${
+      previousValues && p in previousValues
+        ? ` <span class="muted" style="font-weight:400;">${t("previousValueLabel", { value: previousValues[p] })}</span>`
+        : ""
+    }</label>
     <input type="number" id="crit-${i}" min="${minValue}" max="${maxValue}" value="${minValue}" />
   `).join("");
 
@@ -1745,31 +1841,38 @@ async function openEvaluationModal(supplierId) {
   $("evaluation-document-row").style.display = canDiscloseSelectively ? "block" : "none";
   $("evaluation-document-locked").style.display = canDiscloseSelectively ? "none" : "block";
 
+  backToEvaluationEdit();
   $("evaluation-modal").classList.add("open");
 }
-$("evaluation-cancel").addEventListener("click", () => $("evaluation-modal").classList.remove("open"));
+$("evaluation-cancel").addEventListener("click", () => {
+  $("evaluation-modal").classList.remove("open");
+  backToEvaluationEdit();
+});
 $("evaluation-public-toggle").addEventListener("change", (e) => {
   $("evaluation-public-warning").style.display = e.target.checked ? "block" : "none";
 });
-$("evaluation-confirm").addEventListener("click", submitEvaluation);
+$("evaluation-review-btn").addEventListener("click", showEvaluationReview);
+$("evaluation-back-to-edit").addEventListener("click", backToEvaluationEdit);
+$("evaluation-confirm").addEventListener("click", confirmEvaluation);
 
-async function submitEvaluation() {
+let pendingEvaluationPayload = null;
+
+function showEvaluationReview() {
   const modal = $("evaluation-modal");
-  const schemaVersion = BigInt(modal.dataset.schemaVersion);
   const paramCount = Number(modal.dataset.paramCount);
   const isPublic = $("evaluation-public-toggle").checked;
   const note = $("evaluation-note").value;
-  const evaluationDate = $("evaluation-date").value; // YYYY-MM-DD, a quando si riferisce la valutazione
+  const evaluationDate = $("evaluation-date").value;
 
   if (!isPublic && !state.cryptoKey) {
-    openPinModal(submitEvaluation);
+    openPinModal(showEvaluationReview);
     return;
   }
 
   const criteri = {};
   for (let i = 0; i < paramCount; i++) {
     const input = $(`crit-${i}`);
-    const label = $("evaluation-criteria-fields").children[i * 2].textContent.split(" (")[0];
+    const label = $("evaluation-criteria-fields").children[i * 2].textContent.split(" (")[0].trim();
     const value = Number(input.value);
     const min = Number(input.min);
     const max = Number(input.max);
@@ -1786,7 +1889,46 @@ async function submitEvaluation() {
     }
     criteri[label] = value;
   }
-  const payload = { criteri, note, data: evaluationDate };
+
+  pendingEvaluationPayload = { criteri, note, data: evaluationDate };
+
+  const fileInput = $("evaluation-document");
+  const hasDocument = fileInput.files && fileInput.files[0];
+  const criteriRows = Object.entries(criteri).map(([k, v]) =>
+    `<div class="row-between" style="font-size:14px; padding:4px 0;"><span class="muted">${escapeHtml(k)}</span><strong>${v}</strong></div>`
+  ).join("");
+
+  $("evaluation-review-summary").innerHTML = `
+    <div class="card">
+      ${criteriRows}
+      <div class="divider"></div>
+      <div class="muted" style="font-size:13px;">${t("referredTo", { date: escapeHtml(formatDate(evaluationDate)) })}</div>
+      ${note ? `<div style="margin-top:6px; font-size:13px;">${escapeHtml(note)}</div>` : ""}
+      ${hasDocument ? `<div class="muted" style="margin-top:6px; font-size:13px;">📎 ${escapeHtml(fileInput.files[0].name)}</div>` : ""}
+      <div style="margin-top:10px;">
+        <span class="badge ${isPublic ? "badge-public" : "badge-private"}">${isPublic ? t("publicBadge") : t("privateBadge")}</span>
+      </div>
+    </div>
+    ${isPublic ? `<div class="warning-box">${t("makePublicWarning")}</div>` : ""}
+  `;
+
+  $("evaluation-status").textContent = "";
+  $("evaluation-edit-view").style.display = "none";
+  $("evaluation-review-view").style.display = "block";
+}
+
+function backToEvaluationEdit() {
+  $("evaluation-edit-view").style.display = "block";
+  $("evaluation-review-view").style.display = "none";
+  $("evaluation-status").textContent = "";
+}
+
+async function confirmEvaluation() {
+  const modal = $("evaluation-modal");
+  const schemaVersion = BigInt(modal.dataset.schemaVersion);
+  const isPublic = $("evaluation-public-toggle").checked;
+  const payload = pendingEvaluationPayload;
+  if (!payload) return; // difensivo: non dovrebbe poter succedere dalla UI
 
   const btn = $("evaluation-confirm");
   const status = $("evaluation-status");
@@ -1837,12 +1979,14 @@ async function submitEvaluation() {
     $("evaluation-public-toggle").checked = false;
     $("evaluation-public-warning").style.display = "none";
     $("evaluation-document").value = "";
+    pendingEvaluationPayload = null;
+    backToEvaluationEdit();
     await renderEvaluationsForSupplier(currentSupplierId);
   } catch (e) {
     status.textContent = explainRevert(e);
   } finally {
     btn.disabled = false;
-    btn.textContent = t("saveEvaluationBtn");
+    btn.textContent = t("confirmAndSaveBtn");
   }
 }
 
