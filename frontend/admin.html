@@ -129,6 +129,27 @@ const CONFIG = {
 const ABI = REGISTRY_ABI_JSON;
 const $ = (id) => document.getElementById(id);
 
+// =======================================================================
+// LETTURA EVENTI A FINESTRE — stessa funzione, stesso motivo di
+// frontend/index.html: eth_getLogs limitato a 10.000 blocchi per
+// richiesta, la distanza dal deploy la supera gia'.
+// =======================================================================
+const MAX_BLOCK_RANGE = 9000;
+
+async function queryFilterChunked(contract, filter, fromBlock) {
+  const provider = contract.runner.provider ?? contract.runner;
+  const latest = await provider.getBlockNumber();
+  let allEvents = [];
+  let start = fromBlock;
+  while (start <= latest) {
+    const end = Math.min(start + MAX_BLOCK_RANGE, latest);
+    const chunk = await contract.queryFilter(filter, start, end);
+    allEvents = allEvents.concat(chunk);
+    start = end + 1;
+  }
+  return allEvents;
+}
+
 const state = {
   ethersProvider: null,
   signer: null,
@@ -393,7 +414,8 @@ async function renderDashboard() {
 // aggiunto e poi rimosso.
 // =======================================================================
 async function getKnownMembershipAddresses() {
-  const addedEvents = await state.contractReadOnly.queryFilter(
+  const addedEvents = await queryFilterChunked(
+    state.contractReadOnly,
     state.contractReadOnly.filters.MembershipContractAdded(),
     CONFIG.DEPLOY_BLOCK
   );
@@ -577,7 +599,8 @@ async function renderCurrentMetadataStatus() {
   const el = $("metadata-current");
   el.innerHTML = `<p class="muted">Checking current metadata…</p>`;
 
-  const events = await state.contractReadOnly.queryFilter(
+  const events = await queryFilterChunked(
+    state.contractReadOnly,
     state.contractReadOnly.filters.DataChanged(LSP4_METADATA_KEY),
     CONFIG.DEPLOY_BLOCK
   );
@@ -765,7 +788,8 @@ async function renderRegistryImageList() {
   const container = $("registry-image-list");
   container.innerHTML = `<p class="muted">Loading…</p>`;
 
-  const mintEvents = await state.contractReadOnly.queryFilter(
+  const mintEvents = await queryFilterChunked(
+    state.contractReadOnly,
     state.contractReadOnly.filters.RegistryMinted(),
     CONFIG.DEPLOY_BLOCK
   );

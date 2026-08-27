@@ -407,6 +407,31 @@ const state = {
 const $ = (id) => document.getElementById(id);
 
 // =======================================================================
+// LETTURA EVENTI A FINESTRE — molti RPC (incluso quello dell'estensione
+// UP) limitano eth_getLogs a un intervallo massimo di blocchi per
+// richiesta (qui: 10.000). Con la catena ormai a decine di migliaia di
+// blocchi dal deploy, una singola queryFilter(fromBlock=DEPLOY_BLOCK)
+// supera quel limite — non basta "il blocco di partenza giusto", serve
+// spezzare la lettura in finestre piu' piccole e unire i risultati.
+// Sostituisce OGNI queryFilter diretta nel resto del file.
+// =======================================================================
+const MAX_BLOCK_RANGE = 9000; // margine di sicurezza sotto il limite noto di 10.000
+
+async function queryFilterChunked(contract, filter, fromBlock) {
+  const provider = contract.runner.provider ?? contract.runner;
+  const latest = await provider.getBlockNumber();
+  let allEvents = [];
+  let start = fromBlock;
+  while (start <= latest) {
+    const end = Math.min(start + MAX_BLOCK_RANGE, latest);
+    const chunk = await contract.queryFilter(filter, start, end);
+    allEvents = allEvents.concat(chunk);
+    start = end + 1;
+  }
+  return allEvents;
+}
+
+// =======================================================================
 // I18N — inglese di default, italiano solo se e' la lingua PRINCIPALE
 // dichiarata dal browser (non solo presente da qualche parte nella lista
 // di lingue preferite — un utente con ["en", "it"] vuole l'inglese, non
@@ -964,14 +989,16 @@ function shortAddr(addr) {
 // molto piu' tardi, quando qualcosa smette di decifrarsi.
 // =======================================================================
 async function findPrivateValidationTarget(tokenId) {
-  const supplierEvents = await state.contractReadOnly.queryFilter(
+  const supplierEvents = await queryFilterChunked(
+    state.contractReadOnly,
     state.contractReadOnly.filters.SupplierAdded(tokenId),
     CONFIG.DEPLOY_BLOCK
   );
   const privateSupplier = supplierEvents.find(ev => !ev.args.isNamePublic);
   if (privateSupplier) return privateSupplier.args.nameUri;
 
-  const evalEvents = await state.contractReadOnly.queryFilter(
+  const evalEvents = await queryFilterChunked(
+    state.contractReadOnly,
     state.contractReadOnly.filters.EvaluationAdded(tokenId, null),
     CONFIG.DEPLOY_BLOCK
   );
@@ -1062,7 +1089,8 @@ async function openRegistry(tokenId) {
   // dall'evento RegistryMinted di questo specifico tokenId (filtro sul
   // primo parametro indicizzato, che e' proprio il tokenId).
   try {
-    const mintEvents = await state.contractReadOnly.queryFilter(
+    const mintEvents = await queryFilterChunked(
+      state.contractReadOnly,
       state.contractReadOnly.filters.RegistryMinted(tokenId),
       CONFIG.DEPLOY_BLOCK
     );
@@ -1096,7 +1124,7 @@ async function openRegistry(tokenId) {
 // =======================================================================
 async function renderRegistrySelector(forceList = false) {
   const filter = state.contractReadOnly.filters.RegistryMinted(null, state.visitorAccount);
-  const events = await state.contractReadOnly.queryFilter(filter, CONFIG.DEPLOY_BLOCK);
+  const events = await queryFilterChunked(state.contractReadOnly, filter, CONFIG.DEPLOY_BLOCK);
   const [, , , maxRegistries] = await state.contractReadOnly.getEffectiveLimits(state.visitorAccount);
 
   // La scorciatoia "salta direttamente se ce n'e' solo uno" vale solo al
@@ -1369,7 +1397,7 @@ function wireSchemaSetup() {
 // =======================================================================
 async function renderSuppliers() {
   const filter = state.contractReadOnly.filters.SupplierAdded(state.tokenId);
-  const events = await state.contractReadOnly.queryFilter(filter, CONFIG.DEPLOY_BLOCK);
+  const events = await queryFilterChunked(state.contractReadOnly, filter, CONFIG.DEPLOY_BLOCK);
 
   const container = $("suppliers-list");
   if (!container) {
@@ -1534,7 +1562,7 @@ function renderSupplierChart(supplierId, resolved) {
 
 async function renderEvaluationsForSupplier(supplierId) {
   const filter = state.contractReadOnly.filters.EvaluationAdded(state.tokenId, supplierId);
-  const events = await state.contractReadOnly.queryFilter(filter, CONFIG.DEPLOY_BLOCK);
+  const events = await queryFilterChunked(state.contractReadOnly, filter, CONFIG.DEPLOY_BLOCK);
   const container = $(`evaluations-${supplierId}`);
   if (!container) return;
 
@@ -1795,7 +1823,8 @@ let currentSupplierId = null;
 // chiaro o gia' decifrate) possono contribuire; se l'ultima e' ancora
 // bloccata, semplicemente non si mostra nulla (nessun errore).
 async function fetchLatestCriteriaValues(supplierId) {
-  const events = await state.contractReadOnly.queryFilter(
+  const events = await queryFilterChunked(
+    state.contractReadOnly,
     state.contractReadOnly.filters.EvaluationAdded(state.tokenId, supplierId),
     CONFIG.DEPLOY_BLOCK
   );
