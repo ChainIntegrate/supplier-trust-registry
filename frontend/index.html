@@ -361,6 +361,9 @@ const CONFIG = {
   CHAIN_ID: 4201, // testnet — 42 sarebbe mainnet, non ancora deployato li'
   RPC_URL: "https://explorer.execution.testnet.lukso.network/api/eth-rpc", // non usato al momento (si usa window.lukso), aggiornato per coerenza/sicurezza futura
   REGISTRY_CONTRACT: "0x5D31556CA15517916d13f2865D4dc8F68c7c2d4c", // testnet V3 (immagine registro), deployato e verificato
+  DEPLOY_BLOCK: 8356980, // blocco di deploy della V3 (confermato dalla risposta GraphQL di universaleverything).
+                          // OBBLIGATORIO su ogni queryFilter: senza, si scansiona da blocco zero e l'RPC
+                          // rifiuta range troppo ampi (stesso problema gia' risolto su MatchPredictor).
   KDF_ITERATIONS: 600000, // PBKDF2-HMAC-SHA256, raccomandazione OWASP 2023/2025
   PINATA_GATEWAY: "peach-familiar-wombat-848.mypinata.cloud", // gateway dedicato dell'account ChainIntegrate
 };
@@ -962,13 +965,15 @@ function shortAddr(addr) {
 // =======================================================================
 async function findPrivateValidationTarget(tokenId) {
   const supplierEvents = await state.contractReadOnly.queryFilter(
-    state.contractReadOnly.filters.SupplierAdded(tokenId)
+    state.contractReadOnly.filters.SupplierAdded(tokenId),
+    CONFIG.DEPLOY_BLOCK
   );
   const privateSupplier = supplierEvents.find(ev => !ev.args.isNamePublic);
   if (privateSupplier) return privateSupplier.args.nameUri;
 
   const evalEvents = await state.contractReadOnly.queryFilter(
-    state.contractReadOnly.filters.EvaluationAdded(tokenId, null)
+    state.contractReadOnly.filters.EvaluationAdded(tokenId, null),
+    CONFIG.DEPLOY_BLOCK
   );
   const privateEval = evalEvents.find(ev => !ev.args.isPublic);
   if (privateEval) return privateEval.args.uri;
@@ -1058,7 +1063,8 @@ async function openRegistry(tokenId) {
   // primo parametro indicizzato, che e' proprio il tokenId).
   try {
     const mintEvents = await state.contractReadOnly.queryFilter(
-      state.contractReadOnly.filters.RegistryMinted(tokenId)
+      state.contractReadOnly.filters.RegistryMinted(tokenId),
+      CONFIG.DEPLOY_BLOCK
     );
     state.registryLabel = mintEvents[0]?.args?.label || null;
   } catch {
@@ -1090,7 +1096,7 @@ async function openRegistry(tokenId) {
 // =======================================================================
 async function renderRegistrySelector(forceList = false) {
   const filter = state.contractReadOnly.filters.RegistryMinted(null, state.visitorAccount);
-  const events = await state.contractReadOnly.queryFilter(filter);
+  const events = await state.contractReadOnly.queryFilter(filter, CONFIG.DEPLOY_BLOCK);
   const [, , , maxRegistries] = await state.contractReadOnly.getEffectiveLimits(state.visitorAccount);
 
   // La scorciatoia "salta direttamente se ce n'e' solo uno" vale solo al
@@ -1363,7 +1369,7 @@ function wireSchemaSetup() {
 // =======================================================================
 async function renderSuppliers() {
   const filter = state.contractReadOnly.filters.SupplierAdded(state.tokenId);
-  const events = await state.contractReadOnly.queryFilter(filter);
+  const events = await state.contractReadOnly.queryFilter(filter, CONFIG.DEPLOY_BLOCK);
 
   const container = $("suppliers-list");
   if (!container) {
@@ -1528,7 +1534,7 @@ function renderSupplierChart(supplierId, resolved) {
 
 async function renderEvaluationsForSupplier(supplierId) {
   const filter = state.contractReadOnly.filters.EvaluationAdded(state.tokenId, supplierId);
-  const events = await state.contractReadOnly.queryFilter(filter);
+  const events = await state.contractReadOnly.queryFilter(filter, CONFIG.DEPLOY_BLOCK);
   const container = $(`evaluations-${supplierId}`);
   if (!container) return;
 
@@ -1790,7 +1796,8 @@ let currentSupplierId = null;
 // bloccata, semplicemente non si mostra nulla (nessun errore).
 async function fetchLatestCriteriaValues(supplierId) {
   const events = await state.contractReadOnly.queryFilter(
-    state.contractReadOnly.filters.EvaluationAdded(state.tokenId, supplierId)
+    state.contractReadOnly.filters.EvaluationAdded(state.tokenId, supplierId),
+    CONFIG.DEPLOY_BLOCK
   );
   let best = null;
   let bestTime = -Infinity;
