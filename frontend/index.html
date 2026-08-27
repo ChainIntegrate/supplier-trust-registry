@@ -1131,8 +1131,20 @@ async function openRegistry(tokenId) {
 // ha questo indirizzo": si ricostruisce sempre dai log.
 // =======================================================================
 async function renderRegistrySelector(forceList = false) {
-  const filter = state.contractReadOnly.filters.RegistryMinted(null, state.visitorAccount);
-  const events = await queryFilterChunked(state.contractReadOnly, filter, CONFIG.DEPLOY_BLOCK);
+  // Blockscout non gestisce correttamente un filtro con un "buco"
+  // (topics[1]=jolly, topics[2]=valore specifico) — verificato con una
+  // chiamata eth_getLogs diretta, senza passare da ethers: torna vuoto
+  // anche quando gli eventi esistono davvero. Filtro solo per topic0
+  // (RegistryMinted in generale, quello funziona sempre) e seleziono il
+  // proprietario giusto qui, in JavaScript.
+  const allEvents = await queryFilterChunked(
+    state.contractReadOnly,
+    state.contractReadOnly.filters.RegistryMinted(),
+    CONFIG.DEPLOY_BLOCK
+  );
+  const events = allEvents.filter(
+    ev => ev.args.owner.toLowerCase() === state.visitorAccount.toLowerCase()
+  );
   const [, , , maxRegistries] = await state.contractReadOnly.getEffectiveLimits(state.visitorAccount);
 
   // La scorciatoia "salta direttamente se ce n'e' solo uno" vale solo al
