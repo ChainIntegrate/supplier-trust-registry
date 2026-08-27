@@ -123,6 +123,7 @@ const REGISTRY_ABI_JSON = window.REGISTRY_ABI_JSON;
 const CONFIG = {
   REGISTRY_CONTRACT: "0x5D31556CA15517916d13f2865D4dc8F68c7c2d4c", // testnet V3
   DEPLOY_BLOCK: 8356980, // obbligatorio su ogni queryFilter, vedi nota in frontend/index.html
+  RPC_URL: "https://explorer.execution.testnet.lukso.network/api/eth-rpc", // Blockscout, per tutte le letture
   PINATA_GATEWAY: "peach-familiar-wombat-848.mypinata.cloud",
 };
 
@@ -152,6 +153,7 @@ async function queryFilterChunked(contract, filter, fromBlock) {
 
 const state = {
   ethersProvider: null,
+  readOnlyProvider: null, // Blockscout, solo per letture
   signer: null,
   visitorAccount: null,
   contract: null,
@@ -265,7 +267,11 @@ async function connect() {
 
   state.signer = await state.ethersProvider.getSigner();
   state.contract = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, ABI, state.signer);
-  state.contractReadOnly = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, ABI, state.ethersProvider);
+  // Stessa correzione di frontend/index.html: le letture usano Blockscout,
+  // non l'RPC dell'estensione UP (che puo' avere profondita' di
+  // conservazione limitata sugli eventi storici).
+  state.readOnlyProvider = new ethers.JsonRpcProvider(CONFIG.RPC_URL, undefined, { batchMaxCount: 1 });
+  state.contractReadOnly = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, ABI, state.readOnlyProvider);
 
   $("btn-connect").textContent = shortAddr(state.visitorAccount);
   $("btn-connect").disabled = true;

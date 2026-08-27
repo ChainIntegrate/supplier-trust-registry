@@ -359,7 +359,7 @@ const REGISTRY_ABI_JSON = window.REGISTRY_ABI_JSON;
 // =======================================================================
 const CONFIG = {
   CHAIN_ID: 4201, // testnet — 42 sarebbe mainnet, non ancora deployato li'
-  RPC_URL: "https://explorer.execution.testnet.lukso.network/api/eth-rpc", // non usato al momento (si usa window.lukso), aggiornato per coerenza/sicurezza futura
+  RPC_URL: "https://explorer.execution.testnet.lukso.network/api/eth-rpc", // Blockscout: usato per TUTTE le letture (queryFilter/view), indipendente dall'RPC dell'estensione UP
   REGISTRY_CONTRACT: "0x5D31556CA15517916d13f2865D4dc8F68c7c2d4c", // testnet V3 (immagine registro), deployato e verificato
   DEPLOY_BLOCK: 8356980, // blocco di deploy della V3 (confermato dalla risposta GraphQL di universaleverything).
                           // OBBLIGATORIO su ogni queryFilter: senza, si scansiona da blocco zero e l'RPC
@@ -388,6 +388,7 @@ import { ethers } from "https://esm.sh/ethers@6.13.4";
 // =======================================================================
 const state = {
   ethersProvider: null,
+  readOnlyProvider: null, // Blockscout, solo per letture — separato dal provider dell'estensione UP
   signer: null,
   visitorAccount: null,   // chi ha collegato il wallet (per firmare/pagare gas)
   registryOwner: null,    // proprietario EFFETTIVO del registro aperto (letto da tokenOwnerOf)
@@ -937,7 +938,14 @@ async function connect() {
 
   state.signer = await state.ethersProvider.getSigner();
   state.contract = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, ABI, state.signer);
-  state.contractReadOnly = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, ABI, state.ethersProvider);
+  // Le LETTURE (queryFilter su storico eventi, chiamate view) usano un
+  // provider NOSTRO (Blockscout), non quello dell'estensione UP — quello
+  // dell'utente puo' essere un nodo con profondita' di conservazione
+  // limitata ("Receipt not available" su blocchi vecchi), fuori dal
+  // nostro controllo. Solo le SCRITTURE (che richiedono la sua firma)
+  // restano legate a window.lukso tramite state.signer/state.contract.
+  state.readOnlyProvider = new ethers.JsonRpcProvider(CONFIG.RPC_URL, undefined, { batchMaxCount: 1 });
+  state.contractReadOnly = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, ABI, state.readOnlyProvider);
 
   $("btn-connect").textContent = shortAddr(state.visitorAccount);
   $("btn-connect").disabled = true;
