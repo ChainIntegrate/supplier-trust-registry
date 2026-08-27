@@ -50,7 +50,10 @@ for (const [name, value] of Object.entries({ JWT_SECRET, PINATA_JWT, LUKSO_RPC_U
   }
 }
 
-const rpcProvider = new ethers.JsonRpcProvider(LUKSO_RPC_URL);
+// batchMaxCount: 1 — necessario con Blockscout come RPC, altrimenti
+// ethers aggrega piu' chiamate in un unico payload che Blockscout rifiuta
+// per dimensione eccessiva. Stessa lezione gia' imparata su MatchPredictor.
+const rpcProvider = new ethers.JsonRpcProvider(LUKSO_RPC_URL, undefined, { batchMaxCount: 1 });
 
 // Solo la funzione di lettura che serve qui — niente ABI completa da
 // mantenere sincronizzata col contratto, un frammento minimo e stabile.
