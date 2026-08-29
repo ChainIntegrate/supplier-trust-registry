@@ -358,12 +358,10 @@ const REGISTRY_ABI_JSON = window.REGISTRY_ABI_JSON;
 // CONFIGURAZIONE — da completare prima del deploy reale
 // =======================================================================
 const CONFIG = {
-  CHAIN_ID: 4201, // testnet — 42 sarebbe mainnet, non ancora deployato li'
-  RPC_URL: "https://explorer.execution.testnet.lukso.network/api/eth-rpc", // Blockscout: usato per TUTTE le letture (queryFilter/view), indipendente dall'RPC dell'estensione UP
-  REGISTRY_CONTRACT: "0x5D31556CA15517916d13f2865D4dc8F68c7c2d4c", // testnet V3 (immagine registro), deployato e verificato
-  DEPLOY_BLOCK: 8356980, // blocco di deploy della V3 (confermato dalla risposta GraphQL di universaleverything).
-                          // OBBLIGATORIO su ogni queryFilter: senza, si scansiona da blocco zero e l'RPC
-                          // rifiuta range troppo ampi (stesso problema gia' risolto su MatchPredictor).
+  CHAIN_ID: 42, // mainnet
+  RPC_URL: "https://explorer.execution.mainnet.lukso.network/api/eth-rpc", // Blockscout mainnet: usato per TUTTE le letture (queryFilter/view), indipendente dall'RPC dell'estensione UP
+  REGISTRY_CONTRACT: "0xFa143308D85b81Ed57547049F4A7718c3117A064", // MAINNET V3, deployato e verificato
+  DEPLOY_BLOCK: 8268392, // blocco di deploy della V3 mainnet — OBBLIGATORIO su ogni queryFilter
   KDF_ITERATIONS: 600000, // PBKDF2-HMAC-SHA256, raccomandazione OWASP 2023/2025
   PINATA_GATEWAY: "peach-familiar-wombat-848.mypinata.cloud", // gateway dedicato dell'account ChainIntegrate
 };
