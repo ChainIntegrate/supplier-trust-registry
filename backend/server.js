@@ -190,6 +190,6 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: "internal_error" });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '127.0.0.1', () => {
   console.log(`Supplier Trust Registry backend in ascolto sulla porta ${PORT}`);
 });
