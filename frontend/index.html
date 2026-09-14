@@ -230,13 +230,17 @@
 <header>
   <div class="wordmark"><img src="logo.png" alt="" style="height:64px; width:64px; vertical-align:-26px; margin-right:6px; border-radius:4px;" />ChainIntegrate <span>·</span> Supplier Trust Registry</div>
   <div id="wallet-area">
+    <a class="btn btn-ghost" href="how-it-works.html" id="link-how-it-works" style="text-decoration:none; display:inline-block;">Come funziona</a>
     <button class="btn" id="btn-connect">Connetti Universal Profile</button>
+    <button class="btn btn-ghost" id="btn-logout" style="display:none;">Disconnetti</button>
   </div>
 </header>
 
 <main id="app-root">
   <div class="empty-state" id="initial-loading">Connecting…</div>
 </main>
+
+<button id="btn-back-to-top" style="display:none; position:fixed; bottom:20px; right:20px; width:44px; height:44px; border-radius:50%; border:1px solid var(--powder-line); background:var(--blueprint); color:white; font-size:18px; cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,0.15); z-index:50;">↑</button>
 
 <!-- ===================== MODALE PIN ===================== -->
 <div class="modal-backdrop" id="pin-modal">
@@ -293,6 +297,7 @@
 <div class="modal-backdrop" id="evaluation-modal">
   <div class="modal">
     <h2 id="evaluation-modal-title">Nuova valutazione</h2>
+    <div id="evaluation-supplier-name" class="muted" style="margin-top:-8px; margin-bottom:14px; font-size:14px; font-weight:600;"></div>
 
     <div id="evaluation-edit-view">
       <div id="evaluation-criteria-fields"></div>
@@ -445,6 +450,10 @@ const I18N = {
     pageTitle: "Supplier Trust Registry — ChainIntegrate",
     connecting: "Connessione in corso…",
     connectButton: "Connetti Universal Profile",
+    logoutBtn: "Disconnetti",
+    averagesLabel: "Media",
+    backToTopLabel: "Torna su",
+    howItWorksLabel: "Come funziona",
     noExtension: "Nessuna estensione Universal Profile rilevata. Installa la UP Browser Extension per continuare (o, da mobile, apri questa pagina dal browser integrato nella tua app wallet).",
     noAccount: "Nessun account collegato.",
 
@@ -577,6 +586,10 @@ const I18N = {
     pageTitle: "Supplier Trust Registry — ChainIntegrate",
     connecting: "Connecting…",
     connectButton: "Connect Universal Profile",
+    logoutBtn: "Disconnect",
+    averagesLabel: "Average",
+    backToTopLabel: "Back to top",
+    howItWorksLabel: "How it works",
     noExtension: "No Universal Profile extension detected. Install the UP Browser Extension to continue (or, on mobile, open this page from your wallet app's built-in browser).",
     noAccount: "No account connected.",
 
@@ -725,6 +738,8 @@ function applyStaticTranslations() {
   document.title = t("pageTitle");
   document.documentElement.lang = LANG;
   $("btn-connect").textContent = t("connectButton");
+  $("btn-logout").textContent = t("logoutBtn");
+  $("link-how-it-works").textContent = t("howItWorksLabel");
   $("initial-loading").textContent = t("connecting");
 
   $("pin-input-label").textContent = t("secretCode");
@@ -948,6 +963,7 @@ async function connect() {
 
   $("btn-connect").textContent = shortAddr(state.visitorAccount);
   $("btn-connect").disabled = true;
+  $("btn-logout").style.display = "inline-block";
 
   if (typeof window.lukso.on === "function") {
     window.lukso.on("accountsChanged", () => window.location.reload());
@@ -1237,6 +1253,14 @@ async function renderDashboard() {
   const supplierCount = await state.contractReadOnly.supplierCount(state.tokenId);
   const schemaVersions = await state.contractReadOnly.schemaVersionsCount(state.tokenId);
 
+  // Criteri configurati, mostrati subito — prima si vedevano solo indirettamente
+  // aprendo il modale di valutazione, ora sono visibili appena apri il registro.
+  let schemaDetails = null;
+  if (schemaVersions > 0n) {
+    const [paramNames, minValue, maxValue] = await state.contractReadOnly.getSchema(state.tokenId, schemaVersions - 1n);
+    schemaDetails = { paramNames, minValue, maxValue };
+  }
+
   const root = $("app-root");
   root.innerHTML = `
     <div class="row-between">
@@ -1271,6 +1295,12 @@ async function renderDashboard() {
             ? `<span class="badge badge-public">${t("schemaDefined")}</span>`
             : `<span class="badge badge-public">${t("schemaCurrentVersion", { v: schemaVersions })}</span>`}
       </div>
+      ${schemaDetails ? `
+        <div class="muted" style="font-size:12px; margin-top:8px;">
+          ${schemaDetails.paramNames.map(p => escapeHtml(p)).join(" · ")}
+          &nbsp;(${schemaDetails.minValue}–${schemaDetails.maxValue})
+        </div>
+      ` : ""}
     </div>
 
     ${schemaVersions === 0n && state.isOwner ? renderSchemaSetup() : ""}
@@ -1498,6 +1528,10 @@ async function resolveSupplierName(supplierId, nameHash, nameUri, isNamePublic) 
 // ruota colore), non solo per stare nella famiglia "blueprint" — con
 // quella ristretta le linee finivano troppo simili tra loro.
 const CHART_COLORS = ["#1D5C9E", "#1E8E5A", "#8B3FA8", "#C23B7A", "#0E8C8C", "#3B4FC2", "#6B7B1F", "#444444"];
+// Tratteggi diversi per linea, oltre al colore — due linee con lo stesso
+// punteggio si sovrappongono esattamente: senza una texture diversa, una
+// nasconde l'altra e sembra che manchi un dato. null = tratto pieno.
+const DASH_PATTERNS = [null, "6,3", "2,2", "8,2,2,2", "10,3,2,3", "4,4", "1,3", "12,3"];
 
 function renderSupplierChart(supplierId, resolved) {
   const container = $(`chart-${supplierId}`);
@@ -1515,7 +1549,12 @@ function renderSupplierChart(supplierId, resolved) {
 
   const criteriaNames = [...new Set(points.flatMap(p => Object.keys(p.criteri)))];
 
-  const width = 560, height = 160, padL = 8, padR = 8, padT = 10, padB = 8;
+  // Formato PIU' VERTICALE (non piu' largo e schiacciato) — il prodotto e'
+  // pensato per uso quasi esclusivamente mobile: una larghezza fissa e uno
+  // schema molto orizzontale lascia poca risoluzione verticale per separare
+  // punteggi vicini. Qui c'e' piu' spazio in altezza a parita' di larghezza
+  // del contenitore (che resta comunque scalata al 100% dal CSS).
+  const width = 320, height = 260, padL = 10, padR = 10, padT = 12, padB = 10;
   const plotW = width - padL - padR, plotH = height - padT - padB;
 
   const dateMs = points.map(p => new Date(p.date + "T00:00:00").getTime());
@@ -1533,24 +1572,28 @@ function renderSupplierChart(supplierId, resolved) {
 
   const linesSvg = criteriaNames.map((name, i) => {
     const color = CHART_COLORS[i % CHART_COLORS.length];
+    const dash = DASH_PATTERNS[i % DASH_PATTERNS.length];
     const coords = points
       .map((p, idx) => (name in p.criteri) ? `${xFor(dateMs[idx]).toFixed(1)},${yFor(p.criteri[name]).toFixed(1)}` : null)
       .filter(Boolean)
       .join(" ");
     const dots = points
       .map((p, idx) => (name in p.criteri)
-        ? `<circle cx="${xFor(dateMs[idx]).toFixed(1)}" cy="${yFor(p.criteri[name]).toFixed(1)}" r="2.5" fill="${color}" />`
+        ? `<circle cx="${xFor(dateMs[idx]).toFixed(1)}" cy="${yFor(p.criteri[name]).toFixed(1)}" r="3" fill="${color}" />`
         : "")
       .join("");
-    return `<polyline points="${coords}" fill="none" stroke="${color}" stroke-width="2" />${dots}`;
+    return `<polyline points="${coords}" fill="none" stroke="${color}" stroke-width="2.5" ${dash ? `stroke-dasharray="${dash}"` : ""} stroke-linecap="round" />${dots}`;
   }).join("");
 
-  const legend = criteriaNames.map((name, i) => `
-    <span style="display:inline-flex; align-items:center; gap:4px; margin-right:12px; font-size:11px; color:var(--ink-soft);">
-      <span style="width:8px; height:8px; border-radius:50%; background:${CHART_COLORS[i % CHART_COLORS.length]}; display:inline-block;"></span>
+  const legend = criteriaNames.map((name, i) => {
+    const dash = DASH_PATTERNS[i % DASH_PATTERNS.length];
+    return `
+    <span style="display:inline-flex; align-items:center; gap:4px; margin-right:12px; margin-bottom:4px; font-size:11px; color:var(--ink-soft);">
+      <svg width="16" height="8" style="flex-shrink:0;"><line x1="0" y1="4" x2="16" y2="4" stroke="${CHART_COLORS[i % CHART_COLORS.length]}" stroke-width="2.5" ${dash ? `stroke-dasharray="${dash}"` : ""} /></svg>
       ${escapeHtml(name)}
     </span>
-  `).join("");
+  `;
+  }).join("");
 
   const averagesRow = criteriaNames.map((name, i) => {
     const values = points.map(p => p.criteri[name]).filter(v => v !== undefined);
@@ -1573,8 +1616,11 @@ function renderSupplierChart(supplierId, resolved) {
       <span>${escapeHtml(formatDate(points[0].date))}</span>
       <span>${escapeHtml(formatDate(points[points.length - 1].date))}</span>
     </div>
-    <div style="display:flex; justify-content:space-around; gap:6px; margin-top:10px; padding:8px; background:var(--powder); border-radius:var(--radius);">
-      ${averagesRow}
+    <div style="margin-top:10px; padding:8px; border:1px solid var(--powder-line); border-radius:var(--radius);">
+      <div class="muted" style="font-size:11px; margin-bottom:6px;">${t("averagesLabel")}</div>
+      <div style="display:flex; justify-content:space-around; gap:6px;">
+        ${averagesRow}
+      </div>
     </div>
   `;
 }
@@ -1835,6 +1881,7 @@ async function submitSupplier() {
 // MODALE NUOVA VALUTAZIONE
 // =======================================================================
 let currentSupplierId = null;
+let currentSupplierName = "";
 
 // Valori dell'ULTIMA valutazione (per data di riferimento), per mostrarli
 // accanto al campo mentre si compila quella nuova — aiuta a farsi un'idea
@@ -1866,6 +1913,13 @@ async function fetchLatestCriteriaValues(supplierId) {
 
 async function openEvaluationModal(supplierId) {
   currentSupplierId = supplierId;
+
+  // Riuso il nome gia' risolto e mostrato nella card del fornitore — non
+  // serve rifare fetch/decifratura, e' gia' in pagina (fallback "Fornitore
+  // #N" se privato e non ancora sbloccato, o "…caricamento…" se in corso).
+  const supplierNameEl = $(`supplier-name-${supplierId}`);
+  currentSupplierName = supplierNameEl ? supplierNameEl.textContent.trim() : t("supplierFallbackName", { id: supplierId });
+  $("evaluation-supplier-name").textContent = currentSupplierName;
 
   const versionsCount = await state.contractReadOnly.schemaVersionsCount(state.tokenId);
   const latestVersion = versionsCount - 1n;
@@ -1955,6 +2009,7 @@ function showEvaluationReview() {
 
   $("evaluation-review-summary").innerHTML = `
     <div class="card">
+      <div style="font-weight:700; margin-bottom:8px;">${escapeHtml(currentSupplierName)}</div>
       ${criteriRows}
       <div class="divider"></div>
       <div class="muted" style="font-size:13px;">${t("referredTo", { date: escapeHtml(formatDate(evaluationDate)) })}</div>
@@ -2080,6 +2135,22 @@ function explainRevert(e) {
 // =======================================================================
 applyStaticTranslations();
 $("btn-connect").addEventListener("click", connect);
+$("btn-logout").addEventListener("click", () => {
+  // Nessuno stato locale da salvare — il modo piu' sicuro e pulito di
+  // azzerare tutto (chiave di cifratura in memoria, listener, sessione col
+  // backend) e' semplicemente ricaricare la pagina da zero.
+  window.location.reload();
+});
+
+// Torna su — utile soprattutto su mobile con pagine lunghe (molti
+// fornitori/valutazioni). Compare solo dopo un po' di scorrimento, non
+// sempre visibile (sarebbe inutile e ingombrante vicino alla cima).
+window.addEventListener("scroll", () => {
+  $("btn-back-to-top").style.display = window.scrollY > 400 ? "block" : "none";
+});
+$("btn-back-to-top").addEventListener("click", () => {
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
 </script>
 
 </body>

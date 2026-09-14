@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>How it works — Supplier Trust Registry</title>
+<link rel="icon" type="image/x-icon" href="favicon.ico" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+<style>
+  /* Stessi token del resto del sito — vedi index.html/admin.html */
+  :root {
+    --paper: #FAFBFC;
+    --blueprint: #1D5C9E;
+    --blueprint-dark: #164A80;
+    --powder: #E8F1FA;
+    --powder-line: #C9DDF0;
+    --ink: #16232E;
+    --ink-soft: #52657A;
+    --amber: #C77B2E;
+    --amber-soft: #FBEEE0;
+    --radius: 6px;
+    --font-display: 'IBM Plex Sans', sans-serif;
+    --font-mono: 'IBM Plex Mono', monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-display);
+    font-size: 15px;
+    line-height: 1.6;
+    background-image:
+      linear-gradient(var(--powder-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--powder-line) 1px, transparent 1px);
+    background-size: 28px 28px;
+    background-attachment: fixed;
+  }
+  a { color: var(--blueprint); }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 28px; background: rgba(250, 251, 252, 0.9);
+    backdrop-filter: blur(6px); border-bottom: 1px solid var(--powder-line);
+    position: sticky; top: 0; z-index: 10;
+  }
+  .wordmark { font-weight: 700; font-size: 17px; letter-spacing: -0.01em; }
+  .wordmark span { color: var(--blueprint); }
+  main { max-width: 680px; margin: 0 auto; padding: 32px 20px 100px; }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  h2 { font-size: 18px; margin: 36px 0 10px; padding-top: 8px; border-top: 1px solid var(--powder-line); }
+  h2:first-of-type { border-top: none; padding-top: 0; margin-top: 24px; }
+  p { margin: 0 0 12px; }
+  ul { margin: 0 0 12px; padding-left: 20px; }
+  li { margin-bottom: 6px; }
+  .lede { color: var(--ink-soft); font-size: 16px; margin-bottom: 4px; }
+  .card {
+    background: white; border: 1px solid var(--powder-line); border-radius: var(--radius);
+    padding: 16px 18px; margin: 14px 0;
+  }
+  .badge {
+    display: inline-flex; align-items: center; font-size: 11px; font-weight: 600;
+    padding: 2px 8px; border-radius: 999px; margin-right: 4px;
+  }
+  .badge-bronze { background: #F2E6D8; color: #8A5A2B; }
+  .badge-silver { background: #E7ECF0; color: #55636B; }
+  .badge-gold { background: var(--amber-soft); color: var(--amber); }
+  .warning-box {
+    background: var(--amber-soft); border: 1px solid var(--amber); border-radius: var(--radius);
+    padding: 10px 14px; font-size: 13px; color: #7A4A17; margin: 14px 0;
+  }
+  .btn {
+    display: inline-block; font-family: var(--font-display); font-weight: 600; font-size: 14px;
+    border: 1px solid var(--blueprint); background: var(--blueprint); color: white;
+    padding: 10px 18px; border-radius: var(--radius); cursor: pointer; text-decoration: none;
+  }
+  .btn:hover { background: var(--blueprint-dark); }
+  #btn-back-to-top {
+    display: none; position: fixed; bottom: 20px; right: 20px; width: 44px; height: 44px;
+    border-radius: 50%; border: 1px solid var(--powder-line); background: var(--blueprint);
+    color: white; font-size: 18px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 50;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wordmark">
+    <img src="logo.png" alt="" style="height:64px; width:64px; vertical-align:-26px; margin-right:6px; border-radius:4px;" />ChainIntegrate <span>·</span> Supplier Trust Registry
+  </div>
+  <a class="btn" href="index.html" id="btn-back-to-app">Back to app</a>
+</header>
+
+<main>
+
+<!-- ===================== ENGLISH ===================== -->
+<div id="content-en">
+
+<h1>How it works</h1>
+<p class="lede">A short guide to the Supplier Trust Registry — what it does, and how the pieces fit together.</p>
+
+<h2>What this is</h2>
+<p>The Supplier Trust Registry lets you evaluate your suppliers against your own criteria, and record those evaluations permanently on the LUKSO blockchain. You own and control your registry — nobody else can write to it, not even ChainIntegrate.</p>
+
+<h2>Getting started</h2>
+<p>You need a <strong>Universal Profile</strong> (LUKSO's account standard) and an active ChainIntegrate <strong>Membership</strong> to mint your first registry. Connect your Universal Profile from the top of the app — if you don't have the browser extension installed, you'll be prompted to get it.</p>
+
+<h2>Registries</h2>
+<p>A registry is your own record — one NFT you mint and fully control. Depending on your Membership tier, you can mint more than one, which is useful if you need to evaluate different kinds of suppliers separately (e.g. service providers vs. material suppliers) with different criteria for each.</p>
+<div class="card">
+  <span class="badge badge-bronze">Bronze</span> 1 registry, up to 5 suppliers, 4 criteria<br/>
+  <span class="badge badge-silver">Silver</span> 2 registries, up to 25 suppliers, 8 criteria, custom registry image<br/>
+  <span class="badge badge-gold">Gold</span> 5 registries, up to 100 suppliers, 1000 criteria, selective disclosure, document attachments
+</div>
+
+<h2>Criteria (schema)</h2>
+<p>Before adding suppliers, you define your evaluation criteria once — for example "Timeliness", "Quality", "Documentation" — and a value range (e.g. 1–10). Every evaluation you write afterwards scores each supplier against these same criteria, so results stay comparable over time.</p>
+
+<h2>Suppliers and evaluations</h2>
+<p>Add a supplier, then record evaluations for them over time. Each evaluation stores the criteria scores, an optional note, and the date it actually refers to (not just when you happened to record it — handy for entering historical data).</p>
+<p>A chart shows how each criterion trends over time, along with the average per criterion, so you can see a supplier's track record at a glance.</p>
+
+<h2>Public vs. private</h2>
+<p>Both supplier names and individual evaluations can be marked <strong>public</strong> or kept <strong>private</strong>, independently of each other.</p>
+<ul>
+  <li><strong>Public</strong> data is readable by anyone who looks at the blockchain — permanently, even if you later switch it back to private.</li>
+  <li><strong>Private</strong> data is encrypted in your browser before it ever leaves your device. ChainIntegrate never sees the plaintext — not the content, not even the supplier's name.</li>
+</ul>
+<div class="warning-box">Making something public is not reversible in practice: even switching the toggle back later doesn't erase what's already been read and saved by others.</div>
+
+<h2>Your secret code</h2>
+<p>The first time you write anything private to a registry, you'll be asked to create a <strong>secret code</strong>. This code — combined with your registry's own identity — derives the encryption key used for everything private in that registry. There is no way to recover it if you forget it: write it down somewhere safe.</p>
+<p>You can reuse the same code across all your registries, or use a different one for each — either way, the actual encryption keys are always different per registry, because they're derived using each registry's unique identity, not just your code.</p>
+
+<h2>Documents and images (Gold / Silver)</h2>
+<p>On the Gold tier, you can attach a document to an evaluation — it follows the same public/private choice as the evaluation itself. On Silver and above, you can also set a custom image for your registry, to tell multiple registries apart at a glance.</p>
+
+<h2>Data and trust</h2>
+<p>Everything written to a registry is backed by a cryptographic hash stored on-chain — so the integrity of any evaluation can always be independently verified, whether it's public or (once decrypted) private. The actual content lives on IPFS, referenced by that hash.</p>
+
+</div>
+
+<!-- ===================== ITALIANO ===================== -->
+<div id="content-it" style="display:none;">
+
+<h1>Come funziona</h1>
+<p class="lede">Una guida breve al Supplier Trust Registry — cosa fa, e come si incastrano i pezzi.</p>
+
+<h2>Di cosa si tratta</h2>
+<p>Il Supplier Trust Registry ti permette di valutare i tuoi fornitori secondo criteri tuoi, e di registrare quelle valutazioni in modo permanente sulla blockchain LUKSO. Il tuo registro è tuo e lo controlli tu — nessun altro può scriverci, nemmeno ChainIntegrate.</p>
+
+<h2>Per iniziare</h2>
+<p>Serve una <strong>Universal Profile</strong> (lo standard di account di LUKSO) e una Membership ChainIntegrate attiva per mintare il tuo primo registro. Collega la tua Universal Profile dall'alto della pagina — se non hai l'estensione del browser installata, te lo chiederà.</p>
+
+<h2>Registri</h2>
+<p>Un registro è il tuo archivio personale — un NFT che minti e controlli interamente. In base al tuo tier di Membership, puoi mintarne più di uno, utile se devi valutare tipi diversi di fornitori separatamente (es. fornitori di servizi contro fornitori di materiali) con criteri diversi per ciascuno.</p>
+<div class="card">
+  <span class="badge badge-bronze">Bronze</span> 1 registro, fino a 5 fornitori, 4 criteri<br/>
+  <span class="badge badge-silver">Silver</span> 2 registri, fino a 25 fornitori, 8 criteri, immagine personalizzata del registro<br/>
+  <span class="badge badge-gold">Gold</span> 5 registri, fino a 100 fornitori, 1000 criteri, disclosure selettiva, documenti allegati
+</div>
+
+<h2>Criteri (schema)</h2>
+<p>Prima di aggiungere fornitori, definisci una volta i tuoi criteri di valutazione — per esempio "Puntualità", "Qualità", "Documentazione" — e un intervallo di valori (es. 1–10). Ogni valutazione che scrivi dopo valuta il fornitore secondo questi stessi criteri, così i risultati restano confrontabili nel tempo.</p>
+
+<h2>Fornitori e valutazioni</h2>
+<p>Aggiungi un fornitore, poi registra le valutazioni nel tempo. Ogni valutazione salva i punteggi per criterio, una nota facoltativa, e la data a cui si riferisce davvero (non solo quando l'hai scritta — utile per inserire dati storici).</p>
+<p>Un grafico mostra l'andamento di ogni criterio nel tempo, insieme alla media per ciascuno, così vedi lo storico di un fornitore a colpo d'occhio.</p>
+
+<h2>Pubblico e privato</h2>
+<p>Sia i nomi dei fornitori sia le singole valutazioni possono essere impostati come <strong>pubblici</strong> o restare <strong>privati</strong>, indipendentemente l'uno dall'altro.</p>
+<ul>
+  <li>I dati <strong>pubblici</strong> sono leggibili da chiunque guardi la blockchain — in modo permanente, anche se in seguito li rimetti su privato.</li>
+  <li>I dati <strong>privati</strong> sono cifrati nel tuo browser prima ancora di lasciare il tuo dispositivo. ChainIntegrate non vede mai il contenuto in chiaro — né il contenuto, né tantomeno il nome del fornitore.</li>
+</ul>
+<div class="warning-box">Rendere qualcosa pubblico non è reversibile nella pratica: anche disattivando di nuovo l'interruttore in seguito, non cancella quello che è già stato letto e salvato da altri.</div>
+
+<h2>Il tuo codice segreto</h2>
+<p>La prima volta che scrivi qualcosa di privato in un registro, ti verrà chiesto di creare un <strong>codice segreto</strong>. Questo codice — combinato con l'identità propria del registro — genera la chiave di cifratura usata per tutto ciò che è privato in quel registro. Non esiste modo di recuperarlo se lo dimentichi: scrivilo da qualche parte al sicuro.</p>
+<p>Puoi riusare lo stesso codice su tutti i tuoi registri, oppure usarne uno diverso per ciascuno — in entrambi i casi, le chiavi di cifratura vere sono sempre diverse per ogni registro, perché derivano anche dall'identità unica di quel registro, non solo dal tuo codice.</p>
+
+<h2>Documenti e immagini (Gold / Silver)</h2>
+<p>Con il tier Gold puoi allegare un documento a una valutazione — segue la stessa scelta pubblico/privato della valutazione stessa. Da Silver in su, puoi anche impostare un'immagine personalizzata per il tuo registro, per distinguere più registri a colpo d'occhio.</p>
+
+<h2>Dati e fiducia</h2>
+<p>Tutto ciò che viene scritto in un registro è garantito da un hash crittografico salvato on-chain — così l'integrità di qualunque valutazione può sempre essere verificata in modo indipendente, sia pubblica sia (una volta decifrata) privata. Il contenuto vero vive su IPFS, referenziato da quell'hash.</p>
+
+</div>
+
+</main>
+
+<button id="btn-back-to-top">↑</button>
+
+<script>
+  // Stessa identica logica di rilevamento lingua di index.html/admin.html —
+  // primaria del browser, non "presente ovunque nella lista".
+  const primaryLang = navigator.language || (navigator.languages && navigator.languages[0]) || "en";
+  const LANG = primaryLang.toLowerCase().startsWith("it") ? "it" : "en";
+
+  if (LANG === "it") {
+    document.documentElement.lang = "it";
+    document.title = "Come funziona — Supplier Trust Registry";
+    document.getElementById("content-en").style.display = "none";
+    document.getElementById("content-it").style.display = "block";
+    document.getElementById("btn-back-to-app").textContent = "Torna all'app";
+  }
+
+  const backToTop = document.getElementById("btn-back-to-top");
+  window.addEventListener("scroll", () => {
+    backToTop.style.display = window.scrollY > 400 ? "block" : "none";
+  });
+  backToTop.addEventListener("click", () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+</script>
+
+</body>
+</html>
