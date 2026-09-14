@@ -1547,7 +1547,33 @@ const CHART_COLORS = ["#1D5C9E", "#1E8E5A", "#8B3FA8", "#C23B7A", "#0E8C8C", "#3
 // il problema non esiste per costruzione quando c'e' una sola linea.
 // Ritorna solo il markup della card (non lo assegna a nessun container),
 // cosi' il chiamante puo' disporne piu' d'uno in griglia.
-function renderMiniChart(label, points, color, axisMin, axisMax) {
+
+// Le "tacche" da mostrare sull'asse dei valori — ogni intero se il range
+// e' abbastanza piccolo da restare leggibile (il caso normale, es. 1-10),
+// altrimenti un passo piu' largo "pulito" (1, 2, 5, 10, 20...) per non
+// affollare l'asse quando il range e' enorme (es. fino a 1000 su Gold).
+function computeAxisTicks(axisMin, axisMax) {
+  const range = axisMax - axisMin;
+  if (range <= 0) return [axisMin];
+  if (Number.isInteger(axisMin) && Number.isInteger(axisMax) && range <= 12) {
+    const ticks = [];
+    for (let v = axisMin; v <= axisMax; v++) ticks.push(v);
+    return ticks;
+  }
+  const rawStep = range / 6;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const niceMultipliers = [1, 2, 5, 10];
+  let step = niceMultipliers[niceMultipliers.length - 1] * magnitude;
+  for (const m of niceMultipliers) {
+    if (rawStep <= m * magnitude) { step = m * magnitude; break; }
+  }
+  const ticks = [];
+  for (let v = Math.ceil(axisMin / step) * step; v <= axisMax; v += step) ticks.push(v);
+  if (ticks[ticks.length - 1] !== axisMax) ticks.push(axisMax);
+  return ticks;
+}
+
+function renderMiniChart(label, points, color, axisMin, axisMax, showAllValues = false) {
   if (points.length < 2) {
     return `
       <div class="card" style="padding:10px;">
@@ -1557,8 +1583,10 @@ function renderMiniChart(label, points, color, axisMin, axisMax) {
     `;
   }
 
-  // Piu' spazio a sinistra per le etichette dell'asse dei valori.
-  const width = 260, height = 150, padL = 26, padR = 8, padT = 10, padB = 8;
+  // Piu' spazio a sinistra per le etichette dell'asse, e un po' piu' in
+  // alto per non tagliare le etichette dei valori sopra i pallini vicini
+  // al massimo del range.
+  const width = 260, height = 150, padL = 26, padR = 8, padT = 16, padB = 8;
   const plotW = width - padL - padR, plotH = height - padT - padB;
 
   const dateMs = points.map(p => new Date(p.date + "T00:00:00").getTime());
@@ -1591,6 +1619,27 @@ function renderMiniChart(label, points, color, axisMin, axisMax) {
     `<circle cx="${xFor(dateMs[idx]).toFixed(1)}" cy="${yFor(p.value).toFixed(1)}" r="3" fill="${color}" />`
   ).join("");
 
+  // Ogni valore reale marcato accanto al proprio pallino, non solo
+  // l'ultimo — leggibile senza dover indovinare dalla sola posizione
+  // sull'asse. Etichetta sopra il punto, salvo il primo/ultimo punto
+  // dell'intervallo dove sposto leggermente per non uscire dal bordo.
+  const valueLabels = showAllValues
+    ? points.map((p, idx) => {
+        const x = xFor(dateMs[idx]);
+        const anchor = idx === 0 ? "start" : idx === points.length - 1 ? "end" : "middle";
+        return `<text x="${x.toFixed(1)}" y="${(yFor(p.value) - 7).toFixed(1)}" text-anchor="${anchor}" font-size="9" font-weight="600" fill="${color}">${p.value.toFixed(1)}</text>`;
+      }).join("")
+    : "";
+
+  const axisTicks = computeAxisTicks(minVal, maxVal);
+  const axisTicksSvg = axisTicks.map(v => {
+    const y = yFor(v);
+    return `
+      <text x="${padL - 4}" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="8" fill="var(--ink-soft)">${v}</text>
+      <line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + plotW}" y2="${y.toFixed(1)}" stroke="var(--powder-line)" stroke-width="1" ${v === maxVal || v === minVal ? "" : `stroke-dasharray="2,2"`} />
+    `;
+  }).join("");
+
   const lastValue = values[values.length - 1];
 
   return `
@@ -1599,13 +1648,11 @@ function renderMiniChart(label, points, color, axisMin, axisMax) {
         <span style="font-size:11px; font-weight:600;">${escapeHtml(label)}</span>
         <span style="font-size:13px; font-weight:700; color:${color};">${lastValue.toFixed(1)}</span>
       </div>
-      <svg viewBox="0 0 ${width} ${height}" style="width:100%; height:auto; display:block;">
-        <text x="${padL - 4}" y="${padT + 4}" text-anchor="end" font-size="9" fill="var(--ink-soft)">${maxVal.toFixed(1)}</text>
-        <text x="${padL - 4}" y="${padT + plotH}" text-anchor="end" font-size="9" fill="var(--ink-soft)">${minVal.toFixed(1)}</text>
-        <line x1="${padL}" y1="${padT}" x2="${padL + plotW}" y2="${padT}" stroke="var(--powder-line)" stroke-width="1" stroke-dasharray="2,2" />
-        <line x1="${padL}" y1="${padT + plotH}" x2="${padL + plotW}" y2="${padT + plotH}" stroke="var(--powder-line)" stroke-width="1" />
+      <svg viewBox="0 0 ${width} ${height}" style="width:100%; height:auto; display:block; overflow:visible;">
+        ${axisTicksSvg}
         <polyline points="${coords}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" />
         ${dots}
+        ${valueLabels}
       </svg>
       <div class="row-between muted" style="font-size:10px; margin-top:2px;">
         <span>${escapeHtml(formatDate(points[0].date))}</span>
@@ -1661,7 +1708,7 @@ function renderSupplierChart(supplierId, resolved) {
       ${criterionCharts}
     </div>
     <div style="margin-top:10px;">
-      ${renderMiniChart(t("cumulativeAverageLabel"), cumulativeAvgPoints, "#164A80", state.schemaMinValue, state.schemaMaxValue)}
+      ${renderMiniChart(t("cumulativeAverageLabel"), cumulativeAvgPoints, "#164A80", state.schemaMinValue, state.schemaMaxValue, true)}
     </div>
   `;
 }
