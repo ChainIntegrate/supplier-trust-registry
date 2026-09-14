@@ -453,8 +453,7 @@ const I18N = {
     logoutBtn: "Disconnetti",
     averagesLabel: "Media",
     notEnoughDataForChart: "Dati insufficienti",
-    movingAverageLabel: "Media mobile (3 valutazioni)",
-    needMoreEvaluationsForAverage: "Servono almeno 4 valutazioni per la media mobile.",
+    cumulativeAverageLabel: "Media cumulativa",
     backToTopLabel: "Torna su",
     howItWorksLabel: "Come funziona",
     noExtension: "Nessuna estensione Universal Profile rilevata. Installa la UP Browser Extension per continuare (o, da mobile, apri questa pagina dal browser integrato nella tua app wallet).",
@@ -592,8 +591,7 @@ const I18N = {
     logoutBtn: "Disconnect",
     averagesLabel: "Average",
     notEnoughDataForChart: "Not enough data",
-    movingAverageLabel: "Moving average (3 evaluations)",
-    needMoreEvaluationsForAverage: "At least 4 evaluations are needed for the moving average.",
+    cumulativeAverageLabel: "Cumulative average",
     backToTopLabel: "Back to top",
     howItWorksLabel: "How it works",
     noExtension: "No Universal Profile extension detected. Install the UP Browser Extension to continue (or, on mobile, open this page from your wallet app's built-in browser).",
@@ -1618,19 +1616,20 @@ function renderSupplierChart(supplierId, resolved) {
     return renderMiniChart(name, criterionPoints, color);
   }).join("");
 
-  // Media mobile a 3 valutazioni del punteggio complessivo (media di
-  // tutti i criteri presenti in ciascuna valutazione) — il primo valore
-  // calcolabile e' per costruzione alla terza valutazione, non prima:
-  // una media mobile a 3 non esiste finche' non ci sono almeno 3 punti.
+  // Media CUMULATIVA (non mobile a finestra) del voto medio per ogni
+  // valutazione — ad ogni evento, la media di tutte le valutazioni fatte
+  // fino a quel punto incluso. Il primo valore esiste gia' dalla prima
+  // valutazione stessa (e' semplicemente il suo voto medio); bastano due
+  // valutazioni per avere una linea vera, non tre.
   const overallScores = points.map(p => {
     const vals = Object.values(p.criteri);
     return { date: p.date, value: vals.reduce((sum, v) => sum + v, 0) / vals.length };
   });
-  const movingAvgPoints = [];
-  for (let i = 2; i < overallScores.length; i++) {
-    const windowSlice = overallScores.slice(i - 2, i + 1);
-    const avg = windowSlice.reduce((sum, p) => sum + p.value, 0) / windowSlice.length;
-    movingAvgPoints.push({ date: overallScores[i].date, value: avg });
+  const cumulativeAvgPoints = [];
+  let runningSum = 0;
+  for (let i = 0; i < overallScores.length; i++) {
+    runningSum += overallScores[i].value;
+    cumulativeAvgPoints.push({ date: overallScores[i].date, value: runningSum / (i + 1) });
   }
 
   container.innerHTML = `
@@ -1638,9 +1637,7 @@ function renderSupplierChart(supplierId, resolved) {
       ${criterionCharts}
     </div>
     <div style="margin-top:10px;">
-      ${movingAvgPoints.length >= 2
-        ? renderMiniChart(t("movingAverageLabel"), movingAvgPoints, "#164A80")
-        : `<div class="card" style="padding:10px;"><div style="font-size:11px; font-weight:600; margin-bottom:4px;">${t("movingAverageLabel")}</div><p class="muted" style="font-size:11px; margin:0;">${t("needMoreEvaluationsForAverage")}</p></div>`}
+      ${renderMiniChart(t("cumulativeAverageLabel"), cumulativeAvgPoints, "#164A80")}
     </div>
   `;
 }
