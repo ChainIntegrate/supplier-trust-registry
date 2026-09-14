@@ -97,6 +97,15 @@ const uploadLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+// Una sola pagina puo' generare facilmente 10-30 chiamate RPC (finestre di
+// lettura eventi + varie letture view) — limite generoso apposta, serve
+// solo a scoraggiare un uso improprio, non il traffico normale del sito.
+const rpcProxyLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  limit: 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 const authLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
   limit: 20,
@@ -113,6 +122,49 @@ const upload = multer({
 // GET /api/health
 // =======================================================================
 app.get("/api/health", (req, res) => res.json({ ok: true }));
+
+// =======================================================================
+// POST /api/rpc — proxy verso il nodo RPC proprio (LUKSO_RPC_URL, mai
+// esposto al frontend). Stesso schema gia' in uso su MatchPredictor v3:
+// il browser chiama solo il PROPRIO dominio, mai il nodo direttamente —
+// chi ispeziona il codice o la console non vede mai ne' l'URL del nodo
+// ne' tantomeno il token di accesso, entrambi restano solo qui, lato server.
+//
+// Lista chiusa di metodi inoltrabili: non e' un proxy RPC generico aperto
+// a qualunque chiamata, solo quelle che il frontend usa davvero. Meno
+// superficie per un uso improprio del nodo.
+// =======================================================================
+const RPC_METHOD_ALLOWLIST = new Set([
+  "eth_chainId",
+  "eth_blockNumber",
+  "eth_call",
+  "eth_getLogs",
+  "eth_getTransactionReceipt",
+  "eth_getBlockByNumber",
+  "net_version",
+]);
+
+app.post("/api/rpc", rpcProxyLimiter, async (req, res) => {
+  const body = req.body;
+  if (!body || typeof body !== "object" || Array.isArray(body) || typeof body.method !== "string") {
+    return res.status(400).json({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid request" } });
+  }
+  if (!RPC_METHOD_ALLOWLIST.has(body.method)) {
+    return res.status(403).json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32601, message: "Method not allowed through this proxy" } });
+  }
+  try {
+    const upstream = await fetch(LUKSO_RPC_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (e) {
+    console.error("Proxy RPC fallito:", e.message);
+    res.status(502).json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32000, message: "Upstream RPC error" } });
+  }
+});
 
 // =======================================================================
 // POST /api/auth/challenge   { address }
