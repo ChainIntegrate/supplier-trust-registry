@@ -397,6 +397,8 @@ const state = {
   visitorAccount: null,   // chi ha collegato il wallet (per firmare/pagare gas)
   registryOwner: null,    // proprietario EFFETTIVO del registro aperto (letto da tokenOwnerOf)
   registryLabel: null,    // etichetta scelta al mint (es. "Fornitori di servizi"), letta dall'evento
+  schemaMinValue: null,   // range dello schema attuale — usato per l'asse dei grafici (renderSupplierChart)
+  schemaMaxValue: null,
   contract: null,
   contractReadOnly: null,
   tokenId: null,          // bytes32 — con V2 NON e' piu' derivabile dal solo indirizzo,
@@ -1263,6 +1265,12 @@ async function renderDashboard() {
   if (schemaVersions > 0n) {
     const [paramNames, minValue, maxValue] = await state.contractReadOnly.getSchema(state.tokenId, schemaVersions - 1n);
     schemaDetails = { paramNames, minValue, maxValue };
+    // Salvato anche in state: i grafici (renderSupplierChart) lo usano per
+    // ancorare l'asse dei valori al range VERO dello schema, invece di
+    // auto-scalare sui soli dati osservati (che esagera differenze piccole
+    // se i punteggi restano tutti in una fascia stretta del range totale).
+    state.schemaMinValue = Number(minValue);
+    state.schemaMaxValue = Number(maxValue);
   }
 
   const root = $("app-root");
@@ -1539,7 +1547,7 @@ const CHART_COLORS = ["#1D5C9E", "#1E8E5A", "#8B3FA8", "#C23B7A", "#0E8C8C", "#3
 // il problema non esiste per costruzione quando c'e' una sola linea.
 // Ritorna solo il markup della card (non lo assegna a nessun container),
 // cosi' il chiamante puo' disporne piu' d'uno in griglia.
-function renderMiniChart(label, points, color) {
+function renderMiniChart(label, points, color, axisMin, axisMax) {
   if (points.length < 2) {
     return `
       <div class="card" style="padding:10px;">
@@ -1549,7 +1557,8 @@ function renderMiniChart(label, points, color) {
     `;
   }
 
-  const width = 260, height = 150, padL = 8, padR = 8, padT = 8, padB = 8;
+  // Piu' spazio a sinistra per le etichette dell'asse dei valori.
+  const width = 260, height = 150, padL = 26, padR = 8, padT = 10, padB = 8;
   const plotW = width - padL - padR, plotH = height - padT - padB;
 
   const dateMs = points.map(p => new Date(p.date + "T00:00:00").getTime());
@@ -1557,10 +1566,22 @@ function renderMiniChart(label, points, color) {
   const dateSpan = maxDate - minDate || 1;
 
   const values = points.map(p => p.value);
-  let minVal = Math.min(...values), maxVal = Math.max(...values);
-  if (minVal === maxVal) { minVal -= 1; maxVal += 1; }
-  const valPad = (maxVal - minVal) * 0.15;
-  minVal -= valPad; maxVal += valPad;
+  // Range FISSO dello schema, quando disponibile — mostra dove il
+  // punteggio si colloca nel range VERO possibile, non solo rispetto a se
+  // stesso. Un punteggio che oscilla tra 7 e 9 su una scala 1-10 non deve
+  // sembrare occupare tutta l'altezza del grafico: e' una variazione
+  // piccola nel contesto vero, non enorme. Ricade sull'auto-scala solo se
+  // lo schema non e' disponibile per qualche motivo (difensivo).
+  let minVal, maxVal;
+  if (axisMin !== undefined && axisMax !== undefined && axisMin !== null && axisMax !== null) {
+    minVal = axisMin;
+    maxVal = axisMax;
+  } else {
+    minVal = Math.min(...values); maxVal = Math.max(...values);
+    if (minVal === maxVal) { minVal -= 1; maxVal += 1; }
+    const valPad = (maxVal - minVal) * 0.15;
+    minVal -= valPad; maxVal += valPad;
+  }
 
   const xFor = (ms) => padL + ((ms - minDate) / dateSpan) * plotW;
   const yFor = (v) => padT + plotH - ((v - minVal) / (maxVal - minVal)) * plotH;
@@ -1579,6 +1600,9 @@ function renderMiniChart(label, points, color) {
         <span style="font-size:13px; font-weight:700; color:${color};">${lastValue.toFixed(1)}</span>
       </div>
       <svg viewBox="0 0 ${width} ${height}" style="width:100%; height:auto; display:block;">
+        <text x="${padL - 4}" y="${padT + 4}" text-anchor="end" font-size="9" fill="var(--ink-soft)">${maxVal.toFixed(1)}</text>
+        <text x="${padL - 4}" y="${padT + plotH}" text-anchor="end" font-size="9" fill="var(--ink-soft)">${minVal.toFixed(1)}</text>
+        <line x1="${padL}" y1="${padT}" x2="${padL + plotW}" y2="${padT}" stroke="var(--powder-line)" stroke-width="1" stroke-dasharray="2,2" />
         <line x1="${padL}" y1="${padT + plotH}" x2="${padL + plotW}" y2="${padT + plotH}" stroke="var(--powder-line)" stroke-width="1" />
         <polyline points="${coords}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" />
         ${dots}
@@ -1613,7 +1637,7 @@ function renderSupplierChart(supplierId, resolved) {
     const criterionPoints = points
       .map(p => (name in p.criteri) ? { date: p.date, value: p.criteri[name] } : null)
       .filter(Boolean);
-    return renderMiniChart(name, criterionPoints, color);
+    return renderMiniChart(name, criterionPoints, color, state.schemaMinValue, state.schemaMaxValue);
   }).join("");
 
   // Media CUMULATIVA (non mobile a finestra) del voto medio per ogni
@@ -1637,7 +1661,7 @@ function renderSupplierChart(supplierId, resolved) {
       ${criterionCharts}
     </div>
     <div style="margin-top:10px;">
-      ${renderMiniChart(t("cumulativeAverageLabel"), cumulativeAvgPoints, "#164A80")}
+      ${renderMiniChart(t("cumulativeAverageLabel"), cumulativeAvgPoints, "#164A80", state.schemaMinValue, state.schemaMaxValue)}
     </div>
   `;
 }
