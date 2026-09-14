@@ -141,6 +141,7 @@ const RPC_METHOD_ALLOWLIST = new Set([
   "eth_getLogs",
   "eth_getTransactionReceipt",
   "eth_getBlockByNumber",
+  "eth_getBlockByHash", // usato da ev.getBlock() sugli eventi, per leggere il timestamp del blocco
   "net_version",
 ]);
 
