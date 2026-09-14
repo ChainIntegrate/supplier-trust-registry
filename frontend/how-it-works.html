@@ -130,6 +130,14 @@
 </ul>
 <div class="warning-box">Making something public is not reversible in practice: even switching the toggle back later doesn't erase what's already been read and saved by others.</div>
 
+<h2>IPFS permanence — read this carefully</h2>
+<p>All content — public <strong>and private</strong> — is stored on IPFS, a decentralized storage network, not on ChainIntegrate's own servers. This has a consequence that's easy to underestimate: <strong>nothing uploaded to IPFS can ever be truly deleted</strong>.</p>
+<ul>
+  <li><strong>Public</strong> content is stored as plain, readable text — public permanently, by anyone, from the moment it's uploaded.</li>
+  <li><strong>Private</strong> content is stored encrypted — but the encrypted file itself is still on IPFS forever, exactly like public content. "Private" means nobody can read it without your secret code today. It does not mean the file can later be removed. If your code were ever exposed or guessed, the encrypted content is still sitting there, waiting to be decrypted.</li>
+</ul>
+<div class="warning-box">There is no "delete" button that removes something from IPFS, public or private. Once something is uploaded, it stays retrievable indefinitely — by ChainIntegrate, by anyone who has ever accessed it and kept their own copy, and potentially by anyone else on the network. Think carefully before uploading anything, whether you mark it public or private.</div>
+
 <h2>Your secret code</h2>
 <p>The first time you write anything private to a registry, you'll be asked to create a <strong>secret code</strong>. This code — combined with your registry's own identity — derives the encryption key used for everything private in that registry. There is no way to recover it if you forget it: write it down somewhere safe.</p>
 <p>You can reuse the same code across all your registries, or use a different one for each — either way, the actual encryption keys are always different per registry, because they're derived using each registry's unique identity, not just your code.</p>
@@ -176,6 +184,14 @@
   <li>I dati <strong>privati</strong> sono cifrati nel tuo browser prima ancora di lasciare il tuo dispositivo. ChainIntegrate non vede mai il contenuto in chiaro — né il contenuto, né tantomeno il nome del fornitore.</li>
 </ul>
 <div class="warning-box">Rendere qualcosa pubblico non è reversibile nella pratica: anche disattivando di nuovo l'interruttore in seguito, non cancella quello che è già stato letto e salvato da altri.</div>
+
+<h2>Permanenza su IPFS — leggi con attenzione</h2>
+<p>Tutto il contenuto — pubblico <strong>e privato</strong> — è salvato su IPFS, una rete di archiviazione decentralizzata, non sui server di ChainIntegrate. Questo ha una conseguenza facile da sottovalutare: <strong>niente di caricato su IPFS può mai essere davvero cancellato</strong>.</p>
+<ul>
+  <li>Il contenuto <strong>pubblico</strong> è salvato in chiaro, leggibile — pubblico in modo permanente, da chiunque, fin dal momento del caricamento.</li>
+  <li>Il contenuto <strong>privato</strong> è salvato cifrato — ma il file cifrato resta comunque su IPFS per sempre, esattamente come quello pubblico. "Privato" significa che oggi nessuno può leggerlo senza il tuo codice segreto. Non significa che il file possa in seguito essere rimosso. Se il tuo codice venisse mai esposto o indovinato, il contenuto cifrato è comunque lì, pronto per essere decifrato.</li>
+</ul>
+<div class="warning-box">Non esiste un pulsante "elimina" che tolga qualcosa da IPFS, sia pubblico sia privato. Una volta caricato, un contenuto resta recuperabile indefinitamente — da ChainIntegrate, da chiunque lo abbia già consultato e ne tenga una copia, e potenzialmente da chiunque altro sulla rete. Pensaci bene prima di caricare qualunque cosa, che tu la segni come pubblica o privata.</div>
 
 <h2>Il tuo codice segreto</h2>
 <p>La prima volta che scrivi qualcosa di privato in un registro, ti verrà chiesto di creare un <strong>codice segreto</strong>. Questo codice — combinato con l'identità propria del registro — genera la chiave di cifratura usata per tutto ciò che è privato in quel registro. Non esiste modo di recuperarlo se lo dimentichi: scrivilo da qualche parte al sicuro.</p>
