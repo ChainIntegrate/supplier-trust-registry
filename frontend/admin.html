@@ -128,7 +128,7 @@ const REGISTRY_ABI_JSON = window.REGISTRY_ABI_JSON;
 const CONFIG = {
   REGISTRY_CONTRACT: "0xFa143308D85b81Ed57547049F4A7718c3117A064", // MAINNET V3
   DEPLOY_BLOCK: 8268392, // obbligatorio su ogni queryFilter, vedi nota in frontend/index.html
-  RPC_URL: "/api/rpc", // proxy del backend verso il nodo proprio
+  RPC_URL: window.location.origin + "/api/rpc", // proxy del backend verso il nodo proprio
   PINATA_GATEWAY: "peach-familiar-wombat-848.mypinata.cloud",
 };
 

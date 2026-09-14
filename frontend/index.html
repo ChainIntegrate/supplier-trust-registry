@@ -365,7 +365,7 @@ const REGISTRY_ABI_JSON = window.REGISTRY_ABI_JSON;
 // =======================================================================
 const CONFIG = {
   CHAIN_ID: 42, // mainnet
-  RPC_URL: "/api/rpc", // proxy del backend verso il nodo proprio — mai l'URL del nodo (col token) nel frontend
+  RPC_URL: window.location.origin + "/api/rpc", // proxy del backend verso il nodo proprio — mai l'URL del nodo (col token) nel frontend. ethers vuole un URL completo, un percorso relativo non basta.
   REGISTRY_CONTRACT: "0xFa143308D85b81Ed57547049F4A7718c3117A064", // MAINNET V3, deployato e verificato
   DEPLOY_BLOCK: 8268392, // blocco di deploy della V3 mainnet — OBBLIGATORIO su ogni queryFilter
   KDF_ITERATIONS: 600000, // PBKDF2-HMAC-SHA256, raccomandazione OWASP 2023/2025
