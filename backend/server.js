@@ -50,10 +50,26 @@ for (const [name, value] of Object.entries({ JWT_SECRET, PINATA_JWT, LUKSO_RPC_U
   }
 }
 
-// batchMaxCount: 1 — necessario con Blockscout come RPC, altrimenti
-// ethers aggrega piu' chiamate in un unico payload che Blockscout rifiuta
-// per dimensione eccessiva. Stessa lezione gia' imparata su MatchPredictor.
+// batchMaxCount: 1 — impostazione lato client, innocua qualunque sia
+// l'RPC dietro: disattiva l'aggregazione di piu' chiamate in un'unica
+// richiesta (utile soprattutto con Blockscout, che la rifiuta per
+// dimensione; con un nodo proprio non serve ma non fa danno lasciarla).
 const rpcProvider = new ethers.JsonRpcProvider(LUKSO_RPC_URL, undefined, { batchMaxCount: 1 });
+
+// Conferma all'avvio quale RPC sta usando davvero il backend — senza
+// esporre il token per intero nei log. Il posto giusto per verificare
+// che il nodo proprio sia davvero in uso e' qui (log del server), MAI
+// la console del browser: il frontend non tocca mai questo URL, per
+// design (il token non deve mai finire lato client).
+try {
+  const rpcHost = new URL(LUKSO_RPC_URL).host;
+  const rpcPathMasked = LUKSO_RPC_URL.includes("/rpc/")
+    ? "/rpc/" + LUKSO_RPC_URL.split("/rpc/")[1].slice(0, 6) + "…" // solo i primi caratteri del token
+    : new URL(LUKSO_RPC_URL).pathname;
+  console.log(`RPC configurato: ${rpcHost}${rpcPathMasked}`);
+} catch {
+  console.log("RPC configurato: (URL non valido? controllare LUKSO_RPC_URL)");
+}
 
 // Solo la funzione di lettura che serve qui — niente ABI completa da
 // mantenere sincronizzata col contratto, un frammento minimo e stabile.
