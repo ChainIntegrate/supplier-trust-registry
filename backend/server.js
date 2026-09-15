@@ -6,7 +6,8 @@
 //      Profile (via firma + isValidSignature on-chain), emettendo un
 //      token di sessione breve.
 //   2. Inoltrare byte gia' pronti (cifrati o pubblici, non importa quale)
-//      a Pinata, tenendo la JWT Pinata lontana dal frontend.
+//      al nodo IPFS proprio, la cui API di scrittura non e' mai esposta
+//      direttamente al frontend (raggiungibile solo da questa VPS).
 //
 // Non fa MAI cifratura, non vede MAI un PIN, non decide MAI cosa e'
 // pubblico o privato — quelle decisioni sono gia' prese lato client
@@ -21,11 +22,10 @@ const rateLimit = require("express-rate-limit");
 const { ethers } = require("ethers");
 
 const { createChallenge, verifyChallenge, issueSessionToken, requireAuth } = require("./auth");
-const { uploadBufferToPinata } = require("./pinata");
+const { uploadBufferToIPFS } = require("./ipfs");
 
 const PORT = process.env.PORT || 3010;
 const JWT_SECRET = process.env.JWT_SECRET;
-const PINATA_JWT = process.env.PINATA_JWT;
 const LUKSO_RPC_URL = process.env.LUKSO_RPC_URL;
 const REGISTRY_CONTRACT_ADDRESS = process.env.REGISTRY_CONTRACT_ADDRESS;
 const MAX_UPLOAD_BYTES = parseInt(process.env.MAX_UPLOAD_BYTES || "10485760", 10); // 10 MB
@@ -43,7 +43,7 @@ const CHALLENGE_DOMAIN = (() => {
   }
 })();
 
-for (const [name, value] of Object.entries({ JWT_SECRET, PINATA_JWT, LUKSO_RPC_URL, REGISTRY_CONTRACT_ADDRESS })) {
+for (const [name, value] of Object.entries({ JWT_SECRET, LUKSO_RPC_URL, REGISTRY_CONTRACT_ADDRESS })) {
   if (!value) {
     console.error(`Variabile ambiente mancante: ${name}. Controlla .env (vedi .env.example).`);
     process.exit(1);
@@ -236,11 +236,10 @@ app.post(
 
     try {
       const filename = `${req.upAddress}-${Date.now()}`;
-      const cid = await uploadBufferToPinata(
+      const cid = await uploadBufferToIPFS(
         req.file.buffer,
         filename,
-        req.file.mimetype,
-        PINATA_JWT
+        req.file.mimetype
       );
       res.json({ cid });
     } catch (e) {

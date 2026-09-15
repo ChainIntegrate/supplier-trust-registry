@@ -1,7 +1,7 @@
 {
   "name": "supplier-trust-registry-backend",
   "version": "1.0.0",
-  "description": "Proxy di autenticazione (SIWE-style su Universal Profile) e upload IPFS/Pinata per Supplier Trust Registry. Non gestisce mai cifratura ne' PIN utente: riceve solo byte gia' pronti (cifrati o pubblici) e li inoltra a Pinata.",
+  "description": "Proxy di autenticazione (SIWE-style su Universal Profile) e upload/pin verso il nodo IPFS proprio per Supplier Trust Registry. Non gestisce mai cifratura ne' PIN utente: riceve solo byte gia' pronti (cifrati o pubblici) e li inoltra al nodo.",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
