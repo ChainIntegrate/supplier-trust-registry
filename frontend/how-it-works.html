@@ -133,6 +133,16 @@
 </ul>
 <div class="warning-box">Making something public is not reversible in practice: even switching the toggle back later doesn't erase what's already been read and saved by others.</div>
 
+<h2>Permanence — on-chain and on IPFS</h2>
+<p>Two different things here are both effectively permanent, for two different reasons.</p>
+<p><strong>The blockchain record itself</strong> — minting a registry, defining a schema, adding a supplier, saving an evaluation — becomes a permanent part of blockchain history the moment it's confirmed. There is no way to edit or remove a past transaction, ever, for anyone, including ChainIntegrate.</p>
+<p><strong>The content stored on IPFS</strong> — public or private — is more nuanced. ChainIntegrate could, technically, remove a file from its own IPFS node. But that alone does not make the content disappear: nothing prevents anyone who has ever downloaded it — another service, a visitor's browser, a web crawler, literally anyone — from re-pinning the exact same file on a completely different node, at any time, entirely outside ChainIntegrate's control. IPFS identifies content by its hash: the same bytes, pinned anywhere by anyone, produce the same address. There is no way to guarantee a file's true, permanent removal once it has ever been made available on the network.</p>
+<ul>
+  <li><strong>Public</strong> content is stored as plain, readable text — public permanently, by anyone, from the moment it's uploaded.</li>
+  <li><strong>Private</strong> content is stored encrypted — but the encrypted file itself is just as permanent as public content. "Private" means nobody can read it without your secret code today. It does not mean the file can later be made to disappear. If your code were ever exposed or guessed, the encrypted content is still sitting there, waiting to be decrypted.</li>
+</ul>
+<div class="warning-box">Nothing you write to this platform — on-chain or on IPFS, public or private — can ever be guaranteed to be truly and permanently removed. Think carefully before writing or uploading anything.</div>
+
 <h2>Your secret code</h2>
 <p>The first time you write anything private to a registry, you'll be asked to create a <strong>secret code</strong>. This code — combined with your registry's own identity — derives the encryption key used for everything private in that registry. There is no way to recover it if you forget it: write it down somewhere safe.</p>
 <p>You can reuse the same code across all your registries, or use a different one for each — either way, the actual encryption keys are always different per registry, because they're derived using each registry's unique identity, not just your code.</p>
@@ -183,6 +193,16 @@
   <li>I dati <strong>privati</strong> sono cifrati nel tuo browser prima ancora di lasciare il tuo dispositivo. ChainIntegrate non vede mai il contenuto in chiaro — né il contenuto, né tantomeno il nome del fornitore.</li>
 </ul>
 <div class="warning-box">Rendere qualcosa pubblico non è reversibile nella pratica: anche disattivando di nuovo l'interruttore in seguito, non cancella quello che è già stato letto e salvato da altri.</div>
+
+<h2>Permanenza — sulla blockchain e su IPFS</h2>
+<p>Sono due cose diverse, entrambe di fatto permanenti, ma per motivi diversi.</p>
+<p><strong>La scrittura sulla blockchain in sé</strong> — mintare un registro, definire uno schema, aggiungere un fornitore, salvare una valutazione — diventa parte permanente della storia della blockchain nel momento in cui viene confermata. Non esiste modo di modificare o rimuovere una transazione passata, mai, da parte di nessuno, nemmeno di ChainIntegrate.</p>
+<p><strong>Il contenuto salvato su IPFS</strong> — pubblico o privato — è più sfumato. ChainIntegrate potrebbe, tecnicamente, rimuovere un file dal proprio nodo IPFS. Ma questo da solo non fa sparire il contenuto: nulla impedisce a chiunque lo abbia mai scaricato — un altro servizio, il browser di un visitatore, un crawler web, letteralmente chiunque — di ripinnare lo stesso identico file su un nodo completamente diverso, in qualsiasi momento, del tutto fuori dal controllo di ChainIntegrate. IPFS identifica i contenuti tramite il loro hash: gli stessi byte, pinnati da chiunque e ovunque, producono lo stesso indirizzo. Non esiste modo di garantire la rimozione vera e permanente di un file, una volta che è stato reso disponibile sulla rete.</p>
+<ul>
+  <li>Il contenuto <strong>pubblico</strong> è salvato in chiaro, leggibile — pubblico in modo permanente, da chiunque, fin dal momento del caricamento.</li>
+  <li>Il contenuto <strong>privato</strong> è salvato cifrato — ma il file cifrato è comunque permanente esattamente quanto quello pubblico. "Privato" significa che oggi nessuno può leggerlo senza il tuo codice segreto. Non significa che il file possa in seguito essere fatto sparire. Se il tuo codice venisse mai esposto o indovinato, il contenuto cifrato è comunque lì, pronto per essere decifrato.</li>
+</ul>
+<div class="warning-box">Niente di ciò che scrivi su questa piattaforma — on-chain o su IPFS, pubblico o privato — può mai essere garantito come rimosso davvero e in modo permanente. Pensaci bene prima di scrivere o caricare qualunque cosa.</div>
 
 <h2>Il tuo codice segreto</h2>
 <p>La prima volta che scrivi qualcosa di privato in un registro, ti verrà chiesto di creare un <strong>codice segreto</strong>. Questo codice — combinato con l'identità propria del registro — genera la chiave di cifratura usata per tutto ciò che è privato in quel registro. Non esiste modo di recuperarlo se lo dimentichi: scrivilo da qualche parte al sicuro.</p>
