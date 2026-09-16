@@ -144,18 +144,23 @@ pena non riscoprirli:
   ignaro. Non è un rischio teorico una volta che il contenuto può essere
   letto da chi non l'ha scritto.
 
-### Ancora da fare (non bloccante, deploy mainnet già avvenuto)
+### Chiusi
 
-- Test automatici (non ancora scritti — `contracts/mocks/MockMembership.sol`
-  già pronto per quello)
-- Decisione finale KDF (PBKDF2 nativo usato per zero dipendenze esterne;
-  Argon2id/scrypt restano opzioni se si accetta di aggiungere una libreria)
-- Rivedere `express-rate-limit` con `trust proxy` attivo: i limiti sono
-  tarati per singolo IP reale, verificare che restino sensati con Nginx
-  in mezzo
+- ~~Decisione finale KDF~~ — restiamo con PBKDF2 nativo + AES-256-GCM,
+  confermato in produzione con dati reali: stesso PIN → stessa chiave
+  derivata su dispositivi diversi. Argon2id/scrypt mai implementati,
+  nessun bisogno emerso di aggiungere quella dipendenza
+- ~~Rivedere `express-rate-limit` con `trust proxy` attivo~~ — `app.set("trust
+  proxy", 1)` aggiunto (i 502 in produzione erano causati proprio dalla sua
+  assenza), limite RPC alzato da 600 a 3000 richieste/5min per il traffico
+  mainnet reale
+- ~~Verificare l'URL Blockscout mainnet per `hardhat verify`~~ — confermato:
+  verifica sorgente riuscita sul contratto mainnet (vedi sezione deploy sopra)
 
-~~Verificare l'URL Blockscout mainnet per `hardhat verify`~~ — confermato:
-verifica sorgente riuscita sul contratto mainnet (vedi sezione deploy sopra).
+**Test automatici**: nessuna suite pianificata (niente `test/`, niente
+script `test` in `package.json` — `contracts/mocks/MockMembership.sol`
+resta comunque pronto se in futuro servisse). Approccio scelto: manutenzione
+reattiva su richieste e utilizzo reale, non copertura automatica preventiva.
 
 ---
 
@@ -171,8 +176,8 @@ verifica sorgente riuscita sul contratto mainnet (vedi sezione deploy sopra).
    configurazione Membership Corporate mainnet, ownership trasferita alla UP
    ChainIntegrate mainnet, sorgente verificato, VPS aggiornato ✅
 
-Prossimo: hardening (test automatici, rate limiting da rivedere con
-`trust proxy`), poi pubblicazione sullo UP! Store.
+Prossimo: manutenzione su richieste e utilizzo reale, pubblicazione sullo
+UP! Store (PR aperta).
 
 ---
 
