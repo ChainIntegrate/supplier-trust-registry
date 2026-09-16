@@ -100,9 +100,17 @@ const uploadLimiter = rateLimit({
 // Una sola pagina puo' generare facilmente 10-30 chiamate RPC (finestre di
 // lettura eventi + varie letture view) — limite generoso apposta, serve
 // solo a scoraggiare un uso improprio, non il traffico normale del sito.
+// Il limite originale (600/5min) era tarato osservando la testnet, dove
+// la distanza dal blocco di deploy era ~41.000 blocchi (5 finestre da
+// 9.000 per ogni lettura). Sulla mainnet la stessa distanza e' quasi 3
+// volte tanto (14 finestre) — e con piu' fornitori/valutazioni, il
+// caricamento di una sola pagina puo' facilmente sommare centinaia di
+// richieste in pochi secondi. E' il nostro nodo, non un servizio a
+// pagamento con costi per chiamata — meglio essere generosi qui: il
+// limite serve a scoraggiare un abuso vero, non a strozzare l'uso normale.
 const rpcProxyLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
-  limit: 600,
+  limit: 3000,
   standardHeaders: true,
   legacyHeaders: false,
 });
