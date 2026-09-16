@@ -456,6 +456,9 @@ const I18N = {
     averagesLabel: "Media",
     notEnoughDataForChart: "Dati insufficienti",
     periodAverageLabel: "Media per valutazione",
+    metricsLabel: "Metriche",
+    scoreRangeLabel: "Punteggio",
+    scoreRangeValue: "da {min} a {max}",
     backToTopLabel: "Torna su",
     howItWorksLabel: "Come funziona",
     noExtension: "Nessuna estensione Universal Profile rilevata. Installa la UP Browser Extension per continuare (o, da mobile, apri questa pagina dal browser integrato nella tua app wallet).",
@@ -594,6 +597,9 @@ const I18N = {
     averagesLabel: "Average",
     notEnoughDataForChart: "Not enough data",
     periodAverageLabel: "Average per evaluation",
+    metricsLabel: "Metrics",
+    scoreRangeLabel: "Score",
+    scoreRangeValue: "{min} to {max}",
     backToTopLabel: "Back to top",
     howItWorksLabel: "How it works",
     noExtension: "No Universal Profile extension detected. Install the UP Browser Extension to continue (or, on mobile, open this page from your wallet app's built-in browser).",
@@ -1309,8 +1315,8 @@ async function renderDashboard() {
       </div>
       ${schemaDetails ? `
         <div class="muted" style="font-size:12px; margin-top:8px;">
-          ${schemaDetails.paramNames.map(p => escapeHtml(p)).join(" · ")}
-          &nbsp;(${schemaDetails.minValue}–${schemaDetails.maxValue})
+          <div><strong>${t("metricsLabel")}:</strong> ${schemaDetails.paramNames.map(p => escapeHtml(p)).join(", ")}</div>
+          <div style="margin-top:2px;"><strong>${t("scoreRangeLabel")}:</strong> ${t("scoreRangeValue", { min: schemaDetails.minValue, max: schemaDetails.maxValue })}</div>
         </div>
       ` : ""}
     </div>
@@ -1488,6 +1494,11 @@ async function renderSuppliers() {
         </span>
       </div>
       <div id="chart-${supplierId}"></div>
+      <div class="row-between" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--powder-line);">
+        <strong id="supplier-name-repeat-${supplierId}" style="font-size:14px;">
+          ${isNamePublic ? t("loadingLabel") : t("supplierFallbackName", { id: supplierId })}
+        </strong>
+      </div>
       <div class="mono" style="margin-top:4px;">nameHash: ${nameHash.slice(0, 18)}…</div>
       <button class="btn btn-ghost" data-supplier-id="${supplierId}" style="margin-top:10px;">${t("addEvaluationBtn")}</button>
       <div class="evaluations" id="evaluations-${supplierId}" style="margin-top:12px;"></div>
@@ -1503,19 +1514,23 @@ async function renderSuppliers() {
 
 async function resolveSupplierName(supplierId, nameHash, nameUri, isNamePublic) {
   const el = $(`supplier-name-${supplierId}`);
+  const elRepeat = $(`supplier-name-repeat-${supplierId}`);
   try {
     if (isNamePublic) {
       const bytes = await fetchFromIPFS(nameUri);
       const { name } = JSON.parse(new TextDecoder().decode(bytes));
       el.textContent = name;
+      elRepeat.textContent = name;
     } else if (state.cryptoKey) {
       const bytes = await fetchFromIPFS(nameUri);
       const { name } = await decryptJSON(bytes, state.cryptoKey);
       el.textContent = name;
+      elRepeat.textContent = name;
     }
     // se privato e nessuna chiave sbloccata, resta "Fornitore #N" (gia' impostato)
   } catch (e) {
     el.textContent = t("supplierDecryptFail", { id: supplierId });
+    elRepeat.textContent = t("supplierDecryptFail", { id: supplierId });
   }
 }
 
@@ -1586,7 +1601,7 @@ function renderMiniChart(label, points, color, axisMin, axisMax, showAllValues =
   // Piu' spazio a sinistra per le etichette dell'asse, e un po' piu' in
   // alto per non tagliare le etichette dei valori sopra i pallini vicini
   // al massimo del range.
-  const width = 260, height = 150, padL = 26, padR = 8, padT = 16, padB = 8;
+  const width = 340, height = 140, padL = 28, padR = 10, padT = 16, padB = 8;
   const plotW = width - padL - padR, plotH = height - padT - padB;
 
   const dateMs = points.map(p => new Date(p.date + "T00:00:00").getTime());
