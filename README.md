@@ -41,6 +41,16 @@ supplier-trust-registry/
 
 ---
 
+## Deploy attuale — Mainnet (LUKSO chain 42)
+
+- **SupplierRegistry V3**: [`0xFa143308D85b81Ed57547049F4A7718c3117A064`](https://explorer.execution.mainnet.lukso.network/address/0xFa143308D85b81Ed57547049F4A7718c3117A064)
+  (block 8268392) — deployato, configurato, ownership trasferita alla UP
+  ChainIntegrate mainnet, **sorgente verificato pubblicamente**, live in
+  produzione con dati reali
+- **Membership collegata (mainnet)**: `0x18BaFeD9B151Fb29b3cFEa35A3197F4830072a3e`
+  (ChainIntegrateMembershipCorporate)
+- **Owner del contratto (UP ChainIntegrate, mainnet)**: `0x4a2605796e0d91A9667d6E30365aEEC384C48c27`
+
 ## Deploy attuale — Testnet (LUKSO chain 4201)
 
 - **SupplierRegistry**: [`0x325f6f9790409DB689cf976BcEEa621DE0606C7C`](https://explorer.execution.testnet.lukso.network/address/0x325f6f9790409DB689cf976BcEEa621DE0606C7C)
@@ -51,14 +61,12 @@ supplier-trust-registry/
   (diversa dalla UP ChainIntegrate **mainnet**, `0x4a2605796e0d91A9667d6E30365aEEC384C48c27`
   — non confonderle)
 
-Non ancora deployato su mainnet.
-
 ---
 
 ## Stato attuale
 
-**Contratto** (`contracts/SupplierRegistry.sol`) — deployato su testnet (vedi
-sopra), compila pulito contro `@lukso/lsp8-contracts@0.18.1` /
+**Contratto** (`contracts/SupplierRegistry.sol`) — deployato su mainnet e
+testnet (vedi sopra), compila pulito contro `@lukso/lsp8-contracts@0.18.1` /
 `@lukso/lsp4-contracts@0.17.3`, sotto il limite EIP-170 con optimizer
 `runs: 1` (~18,7 KB). Verificato end-to-end contro un nodo Hardhat locale
 reale prima del deploy (mint, gating per tier, doppio mint rifiutato,
@@ -136,18 +144,18 @@ pena non riscoprirli:
   ignaro. Non è un rischio teorico una volta che il contenuto può essere
   letto da chi non l'ha scritto.
 
-### Da completare prima del deploy mainnet
+### Ancora da fare (non bloccante, deploy mainnet già avvenuto)
 
 - Test automatici (non ancora scritti — `contracts/mocks/MockMembership.sol`
   già pronto per quello)
 - Decisione finale KDF (PBKDF2 nativo usato per zero dipendenze esterne;
   Argon2id/scrypt restano opzioni se si accetta di aggiungere una libreria)
-- Verificare l'URL Blockscout mainnet per `hardhat verify` prima di fidarsene
-  (dedotto per analogia col pattern testnet, non confermato da fonte ufficiale
-  come invece lo è quello testnet)
 - Rivedere `express-rate-limit` con `trust proxy` attivo: i limiti sono
   tarati per singolo IP reale, verificare che restino sensati con Nginx
   in mezzo
+
+~~Verificare l'URL Blockscout mainnet per `hardhat verify`~~ — confermato:
+verifica sorgente riuscita sul contratto mainnet (vedi sezione deploy sopra).
 
 ---
 
@@ -159,9 +167,12 @@ pena non riscoprirli:
 3. **VPS** — backend deployato con PM2 + Nginx, frontend collegato,
    flusso completo testato dal vivo con dati reali (mint → schema →
    fornitore → valutazione → decifratura) ✅
+4. **Mainnet** — deploy `0xFa143308D85b81Ed57547049F4A7718c3117A064`,
+   configurazione Membership Corporate mainnet, ownership trasferita alla UP
+   ChainIntegrate mainnet, sorgente verificato, VPS aggiornato ✅
 
 Prossimo: hardening (test automatici, rate limiting da rivedere con
-`trust proxy`), poi eventuale deploy mainnet.
+`trust proxy`), poi pubblicazione sullo UP! Store.
 
 ---
 
