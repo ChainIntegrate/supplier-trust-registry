@@ -408,6 +408,10 @@ const state = {
   tokenId: null,          // bytes32 — con V2 NON e' piu' derivabile dal solo indirizzo,
                            // va scoperto (lista registri) o passato via ?tokenId=0x...
   isOwner: false,
+  isRevoked: false,       // true se getEffectiveLimits(registryOwner) e' tutto a zero: nessuna
+                          // Membership riconosciuta lo copre piu'. Il contratto NON blocca
+                          // addEvaluation/proposeSuccessor/confirmSuccessor in questo caso
+                          // (nessun check di tier al loro interno) — il blocco e' solo qui in UI.
   cryptoKey: null,        // CryptoKey derivata dal PIN, tenuta solo in memoria di sessione
   sessionToken: null,     // JWT emesso da /api/auth/verify, valido 30 minuti
   sessionExpiresAt: 0,
@@ -553,6 +557,9 @@ const I18N = {
     atLeastOneCriterion: "Inserisci almeno un criterio.",
     minLessThanMax: "Il minimo deve essere inferiore al massimo.",
 
+    membershipRevokedWarning: "La tua Membership non è più riconosciuta da nessun tier. Il contratto blocca già nuovi registri, fornitori, immagini e disclosure selettiva; da qui non puoi più aggiungere nuove valutazioni ai fornitori esistenti.",
+    addEvaluationLocked: "Non disponibile: la tua Membership non è più valida.",
+
     noSuppliersYet: "Nessun fornitore ancora — inizia aggiungendone uno.",
     loadingLabel: "…caricamento…",
     supplierFallbackName: "Fornitore #{id}",
@@ -696,6 +703,9 @@ const I18N = {
     saveSchemaBtn: "Save schema",
     atLeastOneCriterion: "Enter at least one criterion.",
     minLessThanMax: "The minimum must be lower than the maximum.",
+
+    membershipRevokedWarning: "Your Membership is no longer recognized by any tier. The contract already blocks new registries, suppliers, images, and selective disclosure; from here you can no longer add new evaluations to existing suppliers.",
+    addEvaluationLocked: "Not available: your Membership is no longer valid.",
 
     noSuppliersYet: "No suppliers yet — start by adding one.",
     loadingLabel: "…loading…",
@@ -1274,7 +1284,14 @@ async function renderRegistrySelector(forceList = false) {
 // DASHBOARD PRINCIPALE
 // =======================================================================
 async function renderDashboard() {
-  const [maxSuppliers, , , , canCustomizeImage] = await state.contractReadOnly.getEffectiveLimits(state.registryOwner);
+  const [maxSuppliers, maxParams, canDiscloseSelectively, maxRegistries, canCustomizeImage] =
+    await state.contractReadOnly.getEffectiveLimits(state.registryOwner);
+  // "Revocato" = nessuna Membership accettata riconosce piu' questo indirizzo
+  // in nessun tier (tutti i campi a zero/false). Il contratto stesso NON
+  // impedisce addEvaluation ne' proposeSuccessor/confirmSuccessor in questo
+  // stato: il blocco per queste due va fatto qui, lato UI.
+  state.isRevoked = maxSuppliers === 0n && maxParams === 0n && !canDiscloseSelectively
+    && maxRegistries === 0n && !canCustomizeImage;
   const supplierCount = await state.contractReadOnly.supplierCount(state.tokenId);
   const schemaVersions = await state.contractReadOnly.schemaVersionsCount(state.tokenId);
 
@@ -1316,6 +1333,9 @@ async function renderDashboard() {
         <span id="registry-image-status" class="muted" style="font-size:12px; margin-left:8px;"></span>
       </div>
     ` : ""}
+    ${state.isOwner && state.isRevoked ? `
+      <div class="warning-box" style="margin-top:12px;">${t("membershipRevokedWarning")}</div>
+    ` : ""}
 
     <div class="card" style="margin-top:20px;">
       <div class="row-between">
@@ -1336,14 +1356,14 @@ async function renderDashboard() {
 
     ${schemaVersions === 0n && state.isOwner ? renderSchemaSetup() : ""}
     ${schemaVersions > 0n ? `<div id="suppliers-list"></div>` : ""}
-    ${schemaVersions > 0n && state.isOwner ? `<button class="btn" id="btn-add-supplier" style="margin-top:8px;">${t("addSupplierBtn")}</button>` : ""}
+    ${schemaVersions > 0n && state.isOwner ? `<button class="btn" id="btn-add-supplier" style="margin-top:8px;" ${state.isRevoked ? "disabled" : ""}>${t("addSupplierBtn")}</button>` : ""}
     <div id="status-line"></div>
   `;
 
   if (schemaVersions === 0n && state.isOwner) wireSchemaSetup();
   if (schemaVersions > 0n) {
     await renderSuppliers();
-    if (state.isOwner) $("btn-add-supplier").addEventListener("click", openSupplierModal);
+    if (state.isOwner && !state.isRevoked) $("btn-add-supplier").addEventListener("click", openSupplierModal);
   }
   $("btn-back-to-list").addEventListener("click", () => {
     state.cryptoKey = null; // si esce dal registro, la chiave non deve sopravvivere al cambio contesto
@@ -1513,12 +1533,15 @@ async function renderSuppliers() {
         </strong>
       </div>
       <div class="mono" style="margin-top:4px;">nameHash: ${nameHash.slice(0, 18)}…</div>
-      <button class="btn btn-ghost" data-supplier-id="${supplierId}" style="margin-top:10px;">${t("addEvaluationBtn")}</button>
+      ${state.isOwner && state.isRevoked
+        ? `<div class="muted" style="font-size:12px; margin-top:10px;">${t("addEvaluationLocked")}</div>`
+        : `<button class="btn btn-ghost" data-supplier-id="${supplierId}" style="margin-top:10px;">${t("addEvaluationBtn")}</button>`}
       <div class="evaluations" id="evaluations-${supplierId}" style="margin-top:12px;"></div>
     `;
     container.appendChild(card);
 
-    card.querySelector("button").addEventListener("click", () => openEvaluationModal(supplierId));
+    const addEvalBtn = card.querySelector("button[data-supplier-id]");
+    if (addEvalBtn) addEvalBtn.addEventListener("click", () => openEvaluationModal(supplierId));
 
     resolveSupplierName(supplierId, nameHash, nameUri, isNamePublic);
     renderEvaluationsForSupplier(supplierId);
@@ -2021,6 +2044,18 @@ async function fetchLatestCriteriaValues(supplierId) {
 }
 
 async function openEvaluationModal(supplierId) {
+  // Difensivo: il contratto NON impedisce addEvaluation a tier zero, quindi
+  // il blocco e' solo qui. Ricontrolliamo di persona (non ci fidiamo solo
+  // del bottone nascosto in renderSuppliers, che potrebbe essere rimasto
+  // in pagina da prima che la membership venisse revocata).
+  const limits = await state.contractReadOnly.getEffectiveLimits(state.registryOwner);
+  const stillRevoked = limits[0] === 0n && limits[1] === 0n && !limits[2] && limits[3] === 0n && !limits[4];
+  if (stillRevoked) {
+    state.isRevoked = true;
+    alert(t("addEvaluationLocked"));
+    return;
+  }
+
   currentSupplierId = supplierId;
 
   // Riuso il nome gia' risolto e mostrato nella card del fornitore — non
