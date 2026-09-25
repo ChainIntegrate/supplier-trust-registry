@@ -16,17 +16,21 @@ arriverà un eventuale tier/contratto Diamond).
 ```
 supplier-trust-registry/
 ├── contracts/
-│   ├── SupplierRegistry.sol      — contratto principale (LSP8, soulbound)
+│   ├── SupplierRegistry-v3.sol   — contratto live su mainnet (LSP8, soulbound)
+│   ├── SupplierRegistry-v2.sol   — versione precedente (testnet)
+│   ├── SupplierRegistry.sol      — prima versione (testnet)
 │   └── mocks/
 │       └── MockMembership.sol    — SOLO per test locali, mai deployare su LUKSO vera
 ├── frontend/
 │   ├── index.html                — SPA vanilla JS, mini-app per il Grid
+│   ├── admin.html                — pannello owner del contratto (tier, metadata)
+│   ├── how-it-works.html         — guida utente IT/EN
 │   └── abi.subset.json           — ABI curata usata da index.html (estratta
 │                                    dalla compilazione reale, non scritta a mano)
 ├── backend/
 │   ├── server.js                 — Express, wiring delle rotte
 │   ├── auth.js                   — challenge/verify stile SIWE su Universal Profile
-│   ├── pinata.js                 — upload verso Pinata Files API v3
+│   ├── ipfs.js                   — upload/pin verso il nodo IPFS proprio (Kubo)
 │   ├── package.json
 │   └── .env.example              — template variabili ambiente (nessun segreto reale)
 ├── scripts/
@@ -93,8 +97,8 @@ ancorata al mondo dei disegni tecnici), IBM Plex Sans/Mono. **Non usa
 (iniettato dalla UP Browser Extension su qualunque pagina, come
 `window.ethereum` di MetaMask) — `up-provider` richiede l'incorporamento
 in un iframe dentro il Grid di universaleverything.io, incompatibile con
-l'uso come sito normale. Il registro da visualizzare viene da `?address=`
-nell'URL, o dal proprio indirizzo per default — permette anche di
+l'uso come sito normale. Il registro da visualizzare viene da `?tokenId=`
+nell'URL, o dalla lista dei propri registri per default — permette anche di
 condividere un link diretto a un registro pubblico altrui.
 
 Flusso completo testato dal vivo, con dati reali, su più dispositivi:
@@ -164,6 +168,77 @@ reattiva su richieste e utilizzo reale, non copertura automatica preventiva.
 
 ---
 
+## Audit 2026-09
+
+Revisione completa di contratto, backend e frontend (settembre 2026). Qui si
+tiene traccia di ogni punto emerso e del suo stato. Il repo è pubblico: i
+punti ancora aperti sono descritti in modo generico finché non vengono
+corretti; il dettaglio tecnico viene aggiunto con la correzione.
+
+Legenda: ✅ corretto · ⏳ aperto · 📌 non correggibile (contratto già
+deployato o dato già scritto on-chain), solo documentato
+
+### Privacy
+
+- ✅ **P1 — Hash on-chain di dati privati ricostruibile per tentativi.**
+  `nameHash` (fornitore privato) e `contentHash` (valutazione privata) erano
+  il keccak256 del JSON **in chiaro**, senza nessun elemento segreto. Il file
+  su IPFS era (ed è) cifrato, ma chi indovinava il contenuto esatto poteva
+  confermarlo confrontando l'hash: verificato su dati reali per un nome
+  fornitore; per una valutazione senza note il costo dipende dalla
+  dimensione dello schema (pubblico). Corretto in `encryptJSON`: ogni JSON
+  privato riceve un `salt` casuale di 32 byte dentro il blob cifrato, quindi
+  l'hash non è più indovinabile, resta verificabile da chi decifra e la
+  lettura dei dati vecchi (senza `salt`) è invariata. Rimossa anche la
+  visualizzazione di `nameHash` nell'interfaccia.
+- 📌 **P1-bis — Dati privati scritti prima della correzione.** Restano con
+  l'hash senza sale, per sempre (on-chain). Documentato in "Come funziona".
+  Mitigazione possibile per casi sensibili: registrare di nuovo il
+  fornitore/la valutazione con la versione corretta.
+- ✅ **P2 — "Come funziona" prometteva più privacy del reale.** Riscritta la
+  sezione dati/fiducia; aggiunto l'elenco dei metadati sempre visibili anche
+  per i dati privati (esistenza, numero, date, etichetta, criteri).
+- ⏳ **P3 — Robustezza del codice segreto.** Nessun requisito minimo.
+- ⏳ **P4 — Risorse di terze parti caricate dal browser** (font, librerie,
+  gateway di lettura): trasferimento di dati dei visitatori a terzi.
+- ⏳ **P6 — Pubblicazione di immagine/etichetta di un registro come metadata
+  standard dal pannello admin**: manca un consenso esplicito dell'utente.
+
+### Sicurezza
+
+- ⏳ **S1** — gestione degli allegati lato visitatore (priorità alta).
+- ⏳ **S2** — controllo di autorizzazione sull'upload da rafforzare.
+- ⏳ **S3** — configurazione infrastrutturale da spostare in `.env` e da
+  cifrare in transito.
+- ⏳ **S4** — proxy RPC da restringere ai soli contratti del progetto.
+- ⏳ **S5** — gestione delle challenge di autenticazione (robustezza).
+- ⏳ **S6** — integrità delle librerie caricate da CDN (SRI/CSP).
+- 📌 **S7** — vincoli applicati solo lato interfaccia perché il contratto V3
+  non li impone (già noto per `addEvaluation`); da riprendere solo in
+  un'eventuale V4.
+
+### Interfaccia
+
+- ✅ **L1 — Linguaggio troppo tecnico/blockchain** (IT/EN): "Minta",
+  "transazione", "on-chain", "wallet", "tier", "IPFS", "UP", "disclosure
+  selettiva" sostituiti con termini d'uso comune (crea registro,
+  salvataggio, app Universal Profile, piano, file, condivisione riservata).
+  Identificativi tecnici (tokenId, hash) tolti dalla vista principale;
+  l'identificativo del registro resta in "Dettagli tecnici". "Come
+  funziona" riscritta con un solo riquadro finale per i lettori tecnici.
+- ⏳ **U1–U17** — bug dell'interfaccia individuati (messaggio errato senza
+  Membership, stato "Connessione in corso…" iniziale, controllo di rete
+  mancante, criteri con parentesi nel nome, campi del modale valutazione
+  non azzerati, data UTC, gestione errori, prestazioni della lettura
+  eventi, correzioni/condivisione riservata non disponibili in UI, HTML
+  malformato in `admin.html`).
+- ✅ **U17** — "Come funziona" parlava di "media per criterio": il grafico
+  mostra la media di ciascuna valutazione. Testo corretto.
+- ⏳ **D1** — `backend/.env.example` non allineato (riferimenti Pinata, RPC,
+  porta).
+
+---
+
 ## Ordine di lavoro deciso
 
 1. **Repo** — struttura, contratto, frontend, backend, README ✅
@@ -192,9 +267,13 @@ riaperti senza motivo** perché già discussi a fondo:
   non da un transfer del token
 - Il contratto **non gestisce mai la cifratura** — sa solo hash + puntatore
   IPFS + flag pubblico/privato. Cifratura/decifratura sempre client-side
-- Chiave di cifratura derivata da PIN utente + sale (indirizzo UP che ha
-  mintato + indirizzo contratto), **letto sempre dalla catena**, mai dalla
-  sessione corrente — ChainIntegrate non salva né può recuperare nulla
+- Chiave di cifratura derivata da PIN utente + sale (keccak256 di tokenId
+  del registro + indirizzo contratto), **letto sempre dalla catena**, mai
+  dalla sessione corrente — ChainIntegrate non salva né può recuperare nulla
+- Ogni JSON privato contiene un campo `salt` casuale (32 byte) **dentro** il
+  blob cifrato: l'hash pubblicato on-chain non si può ricostruire per
+  tentativi (vedi Audit 2026-09, P1). Mai calcolare un hash on-chain su
+  contenuto privato senza questo sale
 - Limiti per tier configurabili via `setTierLimits`, **mai** scolpiti nel
   codice — un futuro tier/contratto Diamond è una pura operazione admin
 - LICENSE del repo: "tutti i diritti riservati" deliberato (non un

@@ -102,57 +102,63 @@
 <p class="lede">A short guide to the Supplier Trust Registry — what it does, and how the pieces fit together.</p>
 
 <h2>What this is</h2>
-<p>The Supplier Trust Registry lets you evaluate your suppliers against your own criteria, and record those evaluations permanently on the LUKSO blockchain. You own and control your registry — nobody else can write to it, not even ChainIntegrate.</p>
+<p>The Supplier Trust Registry lets you evaluate your suppliers against your own criteria and keep a permanent, tamper-proof history of those evaluations. You own and control your registry — nobody else can write to it, not even ChainIntegrate.</p>
 
 <h2>Getting started</h2>
-<p>You need a <strong>Universal Profile</strong> (LUKSO's account standard) and an active ChainIntegrate <strong>Membership</strong> to mint your first registry. Connect your Universal Profile from the top of the app — if you don't have the browser extension installed, you'll be prompted to get it.</p>
+<p>You need a <strong>Universal Profile</strong> (the account you sign in with) and an active ChainIntegrate <strong>Membership</strong> to create your first registry. Sign in from the top of the page — if the Universal Profile browser extension isn't installed, you'll be prompted to get it.</p>
 <div class="card">
-  <strong>A note on timing:</strong> every time you write something to the blockchain — minting a registry, saving a schema, adding a supplier, saving an evaluation — confirmation can take anywhere from a few seconds to a minute or more. Wait for it to complete before navigating away or trying again; the app shows you the status as it progresses (confirm from your wallet → transaction in progress → done).
+  <strong>A note on timing:</strong> every time you save something — creating a registry, saving your criteria, adding a supplier, saving an evaluation — confirmation can take anywhere from a few seconds to a minute or more. Wait for it to complete before navigating away or trying again; the app shows you the status as it progresses (confirm in the Universal Profile app → saving → done).
 </div>
 
 <h2>Registries</h2>
-<p>A registry is your own record — one NFT you mint and fully control. Depending on your Membership tier, you can mint more than one, which is useful if you need to evaluate different kinds of suppliers separately (e.g. service providers vs. material suppliers) with different criteria for each.</p>
+<p>A registry is your own supplier archive, and it stays tied to your profile. Depending on your Membership plan, you can create more than one — useful if you need to evaluate different kinds of suppliers separately (e.g. service providers vs. material suppliers) with different criteria for each.</p>
 <div class="card">
   <span class="badge badge-bronze">Bronze</span> 1 registry, up to 5 suppliers, 4 criteria<br/>
   <span class="badge badge-silver">Silver</span> 2 registries, up to 25 suppliers, 8 criteria, custom registry image<br/>
-  <span class="badge badge-gold">Gold</span> 5 registries, up to 100 suppliers, 1000 criteria, selective disclosure, document attachments
+  <span class="badge badge-gold">Gold</span> 5 registries, up to 100 suppliers, 1000 criteria, confidential sharing, document attachments
 </div>
 
-<h2>Criteria (schema)</h2>
-<p>Before adding suppliers, you define your evaluation criteria once — for example "Timeliness", "Quality", "Documentation" — and a value range (e.g. 1–10). Every evaluation you write afterwards scores each supplier against these same criteria, so results stay comparable over time.</p>
+<h2>Criteria</h2>
+<p>Before adding suppliers, you define your evaluation criteria once — for example "Timeliness", "Quality", "Documentation" — and a value range (e.g. 1–10). Every evaluation you write afterwards scores each supplier against these same criteria, so results stay comparable over time. The names of your criteria and the range are always visible to anyone who opens your registry.</p>
 
 <h2>Suppliers and evaluations</h2>
 <p>Add a supplier, then record evaluations for them over time. Each evaluation stores the criteria scores, an optional note, and the date it actually refers to (not just when you happened to record it — handy for entering historical data).</p>
-<p>A chart shows how each criterion trends over time, along with the average per criterion, so you can see a supplier's track record at a glance.</p>
+<p>A chart shows how each criterion trends over time, along with the average score of each evaluation, so you can see a supplier's track record at a glance.</p>
 
 <h2>Public vs. private</h2>
 <p>Both supplier names and individual evaluations can be marked <strong>public</strong> or kept <strong>private</strong>, independently of each other.</p>
 <ul>
-  <li><strong>Public</strong> data is readable by anyone who looks at the blockchain — permanently, even if you later switch it back to private.</li>
-  <li><strong>Private</strong> data is encrypted in your browser before it ever leaves your device. ChainIntegrate never sees the plaintext — not the content, not even the supplier's name.</li>
+  <li><strong>Public</strong> data is readable by anyone — permanently, even if you later switch the toggle back.</li>
+  <li><strong>Private</strong> data is encrypted in your browser before it ever leaves your device, and only whoever knows your secret code can read it again. ChainIntegrate never sees the content, nor the supplier's name.</li>
 </ul>
+<p>Some information is always visible, even for private data: that a supplier or an evaluation exists, how many there are and when they were saved, the label of your registry and your criteria.</p>
 <div class="warning-box">Making something public is not reversible in practice: even switching the toggle back later doesn't erase what's already been read and saved by others.</div>
 
-<h2>Permanence — on-chain and on IPFS</h2>
-<p>Two different things here are both effectively permanent, for two different reasons.</p>
-<p><strong>The blockchain record itself</strong> — minting a registry, defining a schema, adding a supplier, saving an evaluation — becomes a permanent part of blockchain history the moment it's confirmed. There is no way to edit or remove a past transaction, ever, for anyone, including ChainIntegrate.</p>
-<p><strong>The content stored on IPFS</strong> — public or private — is more nuanced. ChainIntegrate could, technically, remove a file from its own IPFS node. But that alone does not make the content disappear: nothing prevents anyone who has ever downloaded it — another service, a visitor's browser, a web crawler, literally anyone — from re-pinning the exact same file on a completely different node, at any time, entirely outside ChainIntegrate's control. IPFS identifies content by its hash: the same bytes, pinned anywhere by anyone, produce the same address. There is no way to guarantee a file's true, permanent removal once it has ever been made available on the network.</p>
+<h2>Permanence</h2>
+<p>Everything you save is designed to last, and that's what makes the history trustworthy. It also means that nothing can really be deleted.</p>
+<p><strong>The record of each save</strong> — creating a registry, defining criteria, adding a supplier, saving an evaluation — can never be edited or removed afterwards, by anyone, including ChainIntegrate. Mistakes are corrected by adding a new entry, never by deleting the old one.</p>
+<p><strong>The content itself</strong> (names, scores, notes, documents, images) is stored as files on a shared file network. ChainIntegrate could technically remove a file from its own servers, but anyone who has ever downloaded it — another service, a visitor's browser, a web crawler — could publish the exact same file again, at any time, outside ChainIntegrate's control.</p>
 <ul>
-  <li><strong>Public</strong> content is stored as plain, readable text — public permanently, by anyone, from the moment it's uploaded.</li>
-  <li><strong>Private</strong> content is stored encrypted — but the encrypted file itself is just as permanent as public content. "Private" means nobody can read it without your secret code today. It does not mean the file can later be made to disappear. If your code were ever exposed or guessed, the encrypted content is still sitting there, waiting to be decrypted.</li>
+  <li><strong>Public</strong> content is stored as plain, readable text — public permanently, from the moment it's saved.</li>
+  <li><strong>Private</strong> content is stored encrypted — but the encrypted file is just as permanent. "Private" means nobody can read it without your secret code. If your code were ever exposed or guessed, the encrypted content would still be there, waiting to be decrypted: choose a long code that isn't easy to guess.</li>
 </ul>
-<div class="warning-box">Nothing you write to this platform — on-chain or on IPFS, public or private — can ever be guaranteed to be truly and permanently removed. Think carefully before writing or uploading anything.</div>
+<div class="warning-box">Nothing you write to this platform — public or private — can ever be guaranteed to be truly and permanently removed. Think carefully before writing or uploading anything.</div>
 
 <h2>Your secret code</h2>
-<p>The first time you write anything private to a registry, you'll be asked to create a <strong>secret code</strong>. This code — combined with your registry's own identity — derives the encryption key used for everything private in that registry. There is no way to recover it if you forget it: write it down somewhere safe.</p>
-<p>You can reuse the same code across all your registries, or use a different one for each — either way, the actual encryption keys are always different per registry, because they're derived using each registry's unique identity, not just your code.</p>
+<p>The first time you write anything private to a registry, you'll be asked to create a <strong>secret code</strong>. This code — combined with your registry's own identity — creates the key used to encrypt everything private in that registry. There is no way to recover it if you forget it: write it down somewhere safe.</p>
+<p>You can reuse the same code across all your registries, or use a different one for each — either way, the actual encryption keys are always different per registry.</p>
 
 <h2>Documents and images (Gold / Silver)</h2>
-<p>On the Gold tier, you can attach a document to an evaluation — it follows the same public/private choice as the evaluation itself. On Silver and above, you can also set a custom image for your registry, to tell multiple registries apart at a glance.</p>
-<div class="warning-box">Attached documents and registry images are also stored on IPFS — the same permanence described above applies to them too. A document you attach, public or private, can never truly be deleted, exactly like any other content on this platform.</div>
+<p>On the Gold plan, you can attach a document to an evaluation — it follows the same public/private choice as the evaluation itself. On Silver and above, you can also set a custom image for your registry, to tell multiple registries apart at a glance.</p>
+<div class="warning-box">Attached documents and registry images follow the same permanence described above. A document you attach, public or private, can never truly be deleted, exactly like any other content on this platform. The registry image is always public.</div>
 
 <h2>Data and trust</h2>
-<p>Everything written to a registry is backed by a cryptographic hash stored on-chain — so the integrity of any evaluation can always be independently verified, whether it's public or (once decrypted) private. The actual content lives on IPFS, referenced by that hash.</p>
+<p>Every entry is saved together with a digital fingerprint of its content, so anyone who can read it can check it hasn't been altered since. For private data, the fingerprint also includes a random value hidden inside the encrypted content: it can be checked by whoever knows the secret code, but it can't be used to guess what's written.</p>
+<p class="muted" style="font-size:13px;">Private data saved before 25 September 2026 has a fingerprint without this random value: someone who guesses the exact content (for example the exact name of a supplier, or the scores of an evaluation without notes) could confirm the guess. The content itself remains encrypted.</p>
+
+<div class="card muted" style="font-size:13px;">
+  <strong>For technical readers:</strong> saves are transactions on the LUKSO blockchain (the registry is a non-transferable LSP8 token); content is stored on IPFS; private content is encrypted client-side with AES-256-GCM using a key derived from the secret code with PBKDF2-SHA256; fingerprints are keccak256 hashes.
+</div>
 
 </div>
 
@@ -163,57 +169,63 @@
 <p class="lede">Una guida breve al Supplier Trust Registry — cosa fa, e come si incastrano i pezzi.</p>
 
 <h2>Di cosa si tratta</h2>
-<p>Il Supplier Trust Registry ti permette di valutare i tuoi fornitori secondo criteri tuoi, e di registrare quelle valutazioni in modo permanente sulla blockchain LUKSO. Il tuo registro è tuo e lo controlli tu — nessun altro può scriverci, nemmeno ChainIntegrate.</p>
+<p>Il Supplier Trust Registry ti permette di valutare i tuoi fornitori secondo criteri tuoi e di conservarne uno storico permanente e non modificabile. Il tuo registro è tuo e lo controlli tu — nessun altro può scriverci, nemmeno ChainIntegrate.</p>
 
 <h2>Per iniziare</h2>
-<p>Serve una <strong>Universal Profile</strong> (lo standard di account di LUKSO) e una Membership ChainIntegrate attiva per mintare il tuo primo registro. Collega la tua Universal Profile dall'alto della pagina — se non hai l'estensione del browser installata, te lo chiederà.</p>
+<p>Serve un <strong>Universal Profile</strong> (l'account con cui accedi) e una <strong>Membership</strong> ChainIntegrate attiva per creare il tuo primo registro. Accedi dall'alto della pagina — se non hai l'estensione Universal Profile nel browser, te lo chiederà.</p>
 <div class="card">
-  <strong>Una nota sui tempi:</strong> ogni volta che scrivi qualcosa sulla blockchain — mintare un registro, salvare uno schema, aggiungere un fornitore, salvare una valutazione — la conferma può richiedere da pochi secondi a un minuto o più. Attendi che si completi prima di spostarti altrove o riprovare; l'app mostra lo stato man mano che procede (conferma dal wallet → transazione in corso → completato).
+  <strong>Una nota sui tempi:</strong> ogni volta che salvi qualcosa — creare un registro, salvare i criteri, aggiungere un fornitore, salvare una valutazione — la conferma può richiedere da pochi secondi a un minuto o più. Attendi che si completi prima di spostarti altrove o riprovare; l'app mostra lo stato man mano che procede (conferma nell'app Universal Profile → salvataggio in corso → completato).
 </div>
 
 <h2>Registri</h2>
-<p>Un registro è il tuo archivio personale — un NFT che minti e controlli interamente. In base al tuo tier di Membership, puoi mintarne più di uno, utile se devi valutare tipi diversi di fornitori separatamente (es. fornitori di servizi contro fornitori di materiali) con criteri diversi per ciascuno.</p>
+<p>Un registro è il tuo archivio fornitori e resta legato al tuo profilo. In base al tuo piano di Membership puoi crearne più di uno, utile se devi valutare tipi diversi di fornitori separatamente (es. fornitori di servizi e fornitori di materiali) con criteri diversi per ciascuno.</p>
 <div class="card">
   <span class="badge badge-bronze">Bronze</span> 1 registro, fino a 5 fornitori, 4 criteri<br/>
   <span class="badge badge-silver">Silver</span> 2 registri, fino a 25 fornitori, 8 criteri, immagine personalizzata del registro<br/>
-  <span class="badge badge-gold">Gold</span> 5 registri, fino a 100 fornitori, 1000 criteri, disclosure selettiva, documenti allegati
+  <span class="badge badge-gold">Gold</span> 5 registri, fino a 100 fornitori, 1000 criteri, condivisione riservata, documenti allegati
 </div>
 
-<h2>Criteri (schema)</h2>
-<p>Prima di aggiungere fornitori, definisci una volta i tuoi criteri di valutazione — per esempio "Puntualità", "Qualità", "Documentazione" — e un intervallo di valori (es. 1–10). Ogni valutazione che scrivi dopo valuta il fornitore secondo questi stessi criteri, così i risultati restano confrontabili nel tempo.</p>
+<h2>Criteri</h2>
+<p>Prima di aggiungere fornitori, definisci una volta i tuoi criteri di valutazione — per esempio "Puntualità", "Qualità", "Documentazione" — e un intervallo di valori (es. 1–10). Ogni valutazione che scrivi dopo valuta il fornitore secondo questi stessi criteri, così i risultati restano confrontabili nel tempo. I nomi dei criteri e l'intervallo sono sempre visibili a chiunque apra il tuo registro.</p>
 
 <h2>Fornitori e valutazioni</h2>
 <p>Aggiungi un fornitore, poi registra le valutazioni nel tempo. Ogni valutazione salva i punteggi per criterio, una nota facoltativa, e la data a cui si riferisce davvero (non solo quando l'hai scritta — utile per inserire dati storici).</p>
-<p>Un grafico mostra l'andamento di ogni criterio nel tempo, insieme alla media per ciascuno, così vedi lo storico di un fornitore a colpo d'occhio.</p>
+<p>Un grafico mostra l'andamento di ogni criterio nel tempo, insieme al punteggio medio di ciascuna valutazione, così vedi lo storico di un fornitore a colpo d'occhio.</p>
 
 <h2>Pubblico e privato</h2>
 <p>Sia i nomi dei fornitori sia le singole valutazioni possono essere impostati come <strong>pubblici</strong> o restare <strong>privati</strong>, indipendentemente l'uno dall'altro.</p>
 <ul>
-  <li>I dati <strong>pubblici</strong> sono leggibili da chiunque guardi la blockchain — in modo permanente, anche se in seguito li rimetti su privato.</li>
-  <li>I dati <strong>privati</strong> sono cifrati nel tuo browser prima ancora di lasciare il tuo dispositivo. ChainIntegrate non vede mai il contenuto in chiaro — né il contenuto, né tantomeno il nome del fornitore.</li>
+  <li>I dati <strong>pubblici</strong> sono leggibili da chiunque — in modo permanente, anche se in seguito rimetti l'interruttore su privato.</li>
+  <li>I dati <strong>privati</strong> sono cifrati nel tuo browser prima ancora di lasciare il tuo dispositivo, e solo chi conosce il tuo codice segreto può rileggerli. ChainIntegrate non vede mai il contenuto, né il nome del fornitore.</li>
 </ul>
+<p>Alcune informazioni restano sempre visibili, anche per i dati privati: che un fornitore o una valutazione esiste, quanti sono e quando sono stati salvati, l'etichetta del registro e i tuoi criteri.</p>
 <div class="warning-box">Rendere qualcosa pubblico non è reversibile nella pratica: anche disattivando di nuovo l'interruttore in seguito, non cancella quello che è già stato letto e salvato da altri.</div>
 
-<h2>Permanenza — sulla blockchain e su IPFS</h2>
-<p>Sono due cose diverse, entrambe di fatto permanenti, ma per motivi diversi.</p>
-<p><strong>La scrittura sulla blockchain in sé</strong> — mintare un registro, definire uno schema, aggiungere un fornitore, salvare una valutazione — diventa parte permanente della storia della blockchain nel momento in cui viene confermata. Non esiste modo di modificare o rimuovere una transazione passata, mai, da parte di nessuno, nemmeno di ChainIntegrate.</p>
-<p><strong>Il contenuto salvato su IPFS</strong> — pubblico o privato — è più sfumato. ChainIntegrate potrebbe, tecnicamente, rimuovere un file dal proprio nodo IPFS. Ma questo da solo non fa sparire il contenuto: nulla impedisce a chiunque lo abbia mai scaricato — un altro servizio, il browser di un visitatore, un crawler web, letteralmente chiunque — di ripinnare lo stesso identico file su un nodo completamente diverso, in qualsiasi momento, del tutto fuori dal controllo di ChainIntegrate. IPFS identifica i contenuti tramite il loro hash: gli stessi byte, pinnati da chiunque e ovunque, producono lo stesso indirizzo. Non esiste modo di garantire la rimozione vera e permanente di un file, una volta che è stato reso disponibile sulla rete.</p>
+<h2>Permanenza</h2>
+<p>Tutto ciò che salvi è pensato per durare, ed è questo che rende lo storico affidabile. Significa anche che niente può essere davvero cancellato.</p>
+<p><strong>La registrazione di ogni salvataggio</strong> — creare un registro, definire i criteri, aggiungere un fornitore, salvare una valutazione — non può mai essere modificata o rimossa in seguito, da nessuno, nemmeno da ChainIntegrate. Gli errori si correggono aggiungendo una nuova voce, mai cancellando quella vecchia.</p>
+<p><strong>Il contenuto vero e proprio</strong> (nomi, punteggi, note, documenti, immagini) è salvato come file su una rete di archiviazione condivisa. ChainIntegrate potrebbe tecnicamente rimuovere un file dai propri server, ma chiunque lo abbia mai scaricato — un altro servizio, il browser di un visitatore, un crawler web — potrebbe ripubblicare lo stesso identico file, in qualsiasi momento, fuori dal controllo di ChainIntegrate.</p>
 <ul>
-  <li>Il contenuto <strong>pubblico</strong> è salvato in chiaro, leggibile — pubblico in modo permanente, da chiunque, fin dal momento del caricamento.</li>
-  <li>Il contenuto <strong>privato</strong> è salvato cifrato — ma il file cifrato è comunque permanente esattamente quanto quello pubblico. "Privato" significa che oggi nessuno può leggerlo senza il tuo codice segreto. Non significa che il file possa in seguito essere fatto sparire. Se il tuo codice venisse mai esposto o indovinato, il contenuto cifrato è comunque lì, pronto per essere decifrato.</li>
+  <li>Il contenuto <strong>pubblico</strong> è salvato in chiaro, leggibile — pubblico in modo permanente, dal momento del salvataggio.</li>
+  <li>Il contenuto <strong>privato</strong> è salvato cifrato — ma il file cifrato è comunque permanente quanto quello pubblico. "Privato" significa che nessuno può leggerlo senza il tuo codice segreto. Se il codice venisse mai esposto o indovinato, il contenuto cifrato sarebbe comunque lì, pronto per essere decifrato: scegli un codice lungo e non facile da indovinare.</li>
 </ul>
-<div class="warning-box">Niente di ciò che scrivi su questa piattaforma — on-chain o su IPFS, pubblico o privato — può mai essere garantito come rimosso davvero e in modo permanente. Pensaci bene prima di scrivere o caricare qualunque cosa.</div>
+<div class="warning-box">Niente di ciò che scrivi su questa piattaforma — pubblico o privato — può mai essere garantito come rimosso davvero e in modo permanente. Pensaci bene prima di scrivere o caricare qualunque cosa.</div>
 
 <h2>Il tuo codice segreto</h2>
-<p>La prima volta che scrivi qualcosa di privato in un registro, ti verrà chiesto di creare un <strong>codice segreto</strong>. Questo codice — combinato con l'identità propria del registro — genera la chiave di cifratura usata per tutto ciò che è privato in quel registro. Non esiste modo di recuperarlo se lo dimentichi: scrivilo da qualche parte al sicuro.</p>
-<p>Puoi riusare lo stesso codice su tutti i tuoi registri, oppure usarne uno diverso per ciascuno — in entrambi i casi, le chiavi di cifratura vere sono sempre diverse per ogni registro, perché derivano anche dall'identità unica di quel registro, non solo dal tuo codice.</p>
+<p>La prima volta che scrivi qualcosa di privato in un registro, ti verrà chiesto di creare un <strong>codice segreto</strong>. Questo codice — combinato con l'identità propria del registro — genera la chiave usata per cifrare tutto ciò che è privato in quel registro. Non esiste modo di recuperarlo se lo dimentichi: scrivilo da qualche parte al sicuro.</p>
+<p>Puoi riusare lo stesso codice su tutti i tuoi registri, oppure usarne uno diverso per ciascuno — in entrambi i casi, le chiavi di cifratura vere sono sempre diverse per ogni registro.</p>
 
 <h2>Documenti e immagini (Gold / Silver)</h2>
-<p>Con il tier Gold puoi allegare un documento a una valutazione — segue la stessa scelta pubblico/privato della valutazione stessa. Da Silver in su, puoi anche impostare un'immagine personalizzata per il tuo registro, per distinguere più registri a colpo d'occhio.</p>
-<div class="warning-box">Anche i documenti allegati e le immagini del registro sono salvati su IPFS — vale per loro la stessa permanenza descritta sopra. Un documento che alleghi, pubblico o privato, non può mai essere davvero cancellato, esattamente come qualunque altro contenuto su questa piattaforma.</div>
+<p>Con il piano Gold puoi allegare un documento a una valutazione — segue la stessa scelta pubblico/privato della valutazione stessa. Da Silver in su, puoi anche impostare un'immagine personalizzata per il tuo registro, per distinguere più registri a colpo d'occhio.</p>
+<div class="warning-box">Documenti allegati e immagini del registro seguono la stessa permanenza descritta sopra. Un documento che alleghi, pubblico o privato, non può mai essere davvero cancellato, esattamente come qualunque altro contenuto su questa piattaforma. L'immagine del registro è sempre pubblica.</div>
 
 <h2>Dati e fiducia</h2>
-<p>Tutto ciò che viene scritto in un registro è garantito da un hash crittografico salvato on-chain — così l'integrità di qualunque valutazione può sempre essere verificata in modo indipendente, sia pubblica sia (una volta decifrata) privata. Il contenuto vero vive su IPFS, referenziato da quell'hash.</p>
+<p>Ogni voce viene salvata insieme a un'impronta digitale del suo contenuto, così chi può leggerla può verificare che non sia stata alterata da allora. Per i dati privati l'impronta include anche un valore casuale nascosto dentro il contenuto cifrato: la può verificare chi conosce il codice segreto, ma non può essere usata per indovinare cosa c'è scritto.</p>
+<p class="muted" style="font-size:13px;">I dati privati salvati prima del 25 settembre 2026 hanno un'impronta senza questo valore casuale: chi indovina il contenuto esatto (per esempio il nome esatto di un fornitore, o i punteggi di una valutazione senza note) potrebbe confermare l'ipotesi. Il contenuto in sé resta cifrato.</p>
+
+<div class="card muted" style="font-size:13px;">
+  <strong>Per i lettori tecnici:</strong> i salvataggi sono transazioni sulla blockchain LUKSO (il registro è un token LSP8 non trasferibile); il contenuto è su IPFS; i dati privati sono cifrati lato client con AES-256-GCM, con chiave derivata dal codice segreto tramite PBKDF2-SHA256; le impronte sono hash keccak256.
+</div>
 
 </div>
 

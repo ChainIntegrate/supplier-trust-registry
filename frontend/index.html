@@ -231,8 +231,8 @@
   <div class="wordmark"><img src="logo.png" alt="" style="height:88px; width:88px; vertical-align:-18px; margin-right:6px; border-radius:4px;" />ChainIntegrate <span>·</span> Supplier Trust Registry</div>
   <div id="wallet-area">
     <a class="btn btn-ghost" href="how-it-works.html" id="link-how-it-works" style="text-decoration:none; display:inline-block;">Come funziona</a>
-    <button class="btn" id="btn-connect">Connetti Universal Profile</button>
-    <button class="btn btn-ghost" id="btn-logout" style="display:none;">Disconnetti</button>
+    <button class="btn" id="btn-connect">Accedi con Universal Profile</button>
+    <button class="btn btn-ghost" id="btn-logout" style="display:none;">Esci</button>
   </div>
 </header>
 
@@ -317,7 +317,7 @@
         </div>
       </div>
       <div id="evaluation-document-locked" class="muted" style="font-size:12px; display:none;">
-        Allegare un documento richiede la Membership Gold.
+        Allegare un documento richiede il piano Gold.
       </div>
 
       <label for="evaluation-note" id="evaluation-note-label">Note</label>
@@ -326,7 +326,7 @@
       <div class="toggle-row" id="evaluation-public-row">
         <div>
           <div id="evaluation-public-title" style="font-weight:600; font-size:13px;">Rendi pubblica questa valutazione</div>
-          <div class="muted" id="evaluation-public-desc">Chiunque legga la blockchain potrà leggerla — per sempre</div>
+          <div class="muted" id="evaluation-public-desc">Chiunque potrà leggerla, per sempre</div>
         </div>
         <input type="checkbox" id="evaluation-public-toggle" style="width:auto;" />
       </div>
@@ -459,8 +459,8 @@ const I18N = {
   it: {
     pageTitle: "Supplier Trust Registry — ChainIntegrate",
     connecting: "Connessione in corso…",
-    connectButton: "Connetti Universal Profile",
-    logoutBtn: "Disconnetti",
+    connectButton: "Accedi con Universal Profile",
+    logoutBtn: "Esci",
     averagesLabel: "Media",
     notEnoughDataForChart: "Dati insufficienti",
     periodAverageLabel: "Media per valutazione",
@@ -472,7 +472,7 @@ const I18N = {
     footerTelegram: "Assistenza via Telegram",
     backToTopLabel: "Torna su",
     howItWorksLabel: "Come funziona",
-    noExtension: "Nessuna estensione Universal Profile rilevata. Installa la UP Browser Extension per continuare (o, da mobile, apri questa pagina dal browser integrato nella tua app wallet).",
+    noExtension: "Per accedere serve l'estensione Universal Profile nel browser. Da smartphone, apri questa pagina dal browser integrato nell'app Universal Profile.",
     noAccount: "Nessun account collegato.",
 
     secretCode: "Codice segreto",
@@ -503,48 +503,51 @@ const I18N = {
     evaluationDateLabel: "Data a cui si riferisce la valutazione",
     documentLabel: "Documento allegato (opzionale)",
     documentHint: "Segue la stessa scelta pubblico/privato di questa valutazione.",
-    documentLocked: "Allegare un documento richiede la Membership Gold.",
+    documentLocked: "Allegare un documento richiede il piano Gold.",
     noteLabel: "Note",
     notePlaceholder: "Osservazioni facoltative",
     makePublicTitle: "Rendi pubblica questa valutazione",
-    makePublicDesc: "Chiunque legga la blockchain potrà leggerla — per sempre",
+    makePublicDesc: "Chiunque potrà leggerla, per sempre",
     makePublicWarning: "Una volta resa pubblica, questa valutazione è leggibile da chiunque, per sempre. Anche disattivando di nuovo l'interruttore in futuro, il contenuto già pubblicato resta recuperabile da chi lo ha già scaricato.",
     saveEvaluationBtn: "Salva valutazione",
     changeImageBtn: "Cambia immagine",
     previousValueLabel: "· prima: {value}",
     backToEditBtn: "Torna a modificare",
     confirmAndSaveBtn: "Conferma e salva",
-    errImageCustomizationNotAllowed: "L'immagine personalizzata richiede il tier Silver o superiore.",
+    errImageCustomizationNotAllowed: "L'immagine personalizzata richiede il piano Silver o superiore.",
 
     verifying: "Verifica in corso…",
     wrongCode: "Codice errato — non corrisponde ai dati privati già presenti in questo registro.",
 
     yourRegistries: "I tuoi Registri",
-    usedOfTier: "{count} / {max} usati per il tuo tier",
+    usedOfTier: "{count} di {max} previsti dal tuo piano",
     registryFallbackName: "Registro #{index}",
     openBtn: "Apri",
-    noMembershipTitle: "Nessuna Membership riconosciuta",
-    noMembershipDesc: "Serve almeno una Membership ChainIntegrate (Bronze o superiore)<br/>collegata a questa Universal Profile per poter mintare un Registro.",
-    mintFirstTitle: "Minta il tuo primo Registro",
-    mintNewTitle: "Nuovo Registro",
+    noMembershipTitle: "Nessuna Membership attiva",
+    noMembershipDesc: "Per creare un registro serve una Membership ChainIntegrate attiva (Bronze o superiore)<br/>collegata a questo profilo.",
+    mintFirstTitle: "Crea il tuo primo registro",
+    mintNewTitle: "Nuovo registro",
     mintLabelLabel: 'Etichetta (es. "Fornitori di servizi")',
     mintLabelPlaceholder: "Un nome per riconoscerlo",
-    mintBtn: "Minta",
-    maxRegistriesReached: "Hai raggiunto il numero massimo di registri per il tuo tier ({max}).",
-    confirmFromWallet: "Conferma dal wallet…",
-    openExtensionToSign: "Apri l'estensione/app UP per confermare la firma.",
-    txInProgress: "Transazione in corso…",
-    txPendingConfirmation: "Transazione inviata, in attesa di conferma on-chain — può richiedere qualche secondo.",
-    registryMintedOpening: "Registro mintato, apertura in corso…",
-    noRegistryFound: "Nessun registro trovato per questo tokenId.",
+    mintBtn: "Crea registro",
+    maxRegistriesReached: "Hai raggiunto il numero massimo di registri del tuo piano ({max}).",
+    confirmFromWallet: "Conferma nell'app Universal Profile…",
+    openExtensionToSign: "Apri l'estensione o l'app Universal Profile per confermare.",
+    txInProgress: "Salvataggio in corso…",
+    txPendingConfirmation: "Salvataggio inviato, in attesa di conferma — può richiedere qualche secondo.",
+    registryMintedOpening: "Registro creato, apertura in corso…",
+    noRegistryFound: "Registro non trovato.",
 
     backToRegistries: "← I tuoi registri",
+    technicalDetails: "Dettagli tecnici",
+    registryIdLabel: "Identificativo del registro",
+    evaluationNumber: "Valutazione n. {id}",
     unnamedRegistry: "Registro senza nome",
     suppliersCount: "{count} / {max} fornitori",
     ofMaxSuppliers: "/ {max} fornitori",
-    schemaNotDefined: "Schema non ancora definito",
-    schemaDefined: "Schema definito",
-    schemaCurrentVersion: "Schema attuale: versione {v}",
+    schemaNotDefined: "Criteri non ancora definiti",
+    schemaDefined: "Criteri definiti",
+    schemaCurrentVersion: "Criteri: versione {v}",
     addSupplierBtn: "+ Nuovo fornitore",
 
     defineSchemaTitle: "Definisci i criteri di valutazione",
@@ -553,12 +556,12 @@ const I18N = {
     criteriaPlaceholder: "Puntualità\nQualità\nDocumentazione\nReattività",
     minValueLabel: "Valore minimo",
     maxValueLabel: "Valore massimo",
-    saveSchemaBtn: "Salva schema",
+    saveSchemaBtn: "Salva criteri",
     atLeastOneCriterion: "Inserisci almeno un criterio.",
     minLessThanMax: "Il minimo deve essere inferiore al massimo.",
 
-    membershipRevokedWarning: "La tua Membership non è più riconosciuta da nessun tier. Il contratto blocca già nuovi registri, fornitori, immagini e disclosure selettiva; da qui non puoi più aggiungere nuove valutazioni ai fornitori esistenti.",
-    addEvaluationLocked: "Non disponibile: la tua Membership non è più valida.",
+    membershipRevokedWarning: "La tua Membership non risulta più attiva. Non puoi creare nuovi registri o fornitori, cambiare immagine né aggiungere valutazioni; i dati già salvati restano consultabili.",
+    addEvaluationLocked: "Non disponibile: la tua Membership non è più attiva.",
 
     noSuppliersYet: "Nessun fornitore ancora — inizia aggiungendone uno.",
     loadingLabel: "…caricamento…",
@@ -587,27 +590,27 @@ const I18N = {
     rangeError: '"{label}" deve essere tra {min} e {max} (hai messo {value}).',
     emptyValue: "un valore vuoto",
 
-    errRegistryAlreadyMinted: "Hai già un Registro mintato per questa UP.",
-    errNoRecognizedMembership: "Nessuna Membership riconosciuta su questa UP.",
-    errSupplierLimitReached: "Hai raggiunto il numero massimo di fornitori per il tuo tier.",
-    errParamLimitReached: "Troppi criteri per il tuo tier attuale.",
-    errNotRegistryOwner: "Solo il proprietario del Registro può eseguire questa azione.",
-    errSelectiveDisclosureNotAllowed: "La disclosure selettiva richiede il tier Gold o superiore.",
+    errRegistryAlreadyMinted: "Hai già un registro su questo profilo.",
+    errNoRecognizedMembership: "Nessuna Membership attiva su questo profilo.",
+    errSupplierLimitReached: "Hai raggiunto il numero massimo di fornitori del tuo piano.",
+    errParamLimitReached: "Troppi criteri per il tuo piano attuale.",
+    errNotRegistryOwner: "Solo il proprietario del registro può eseguire questa azione.",
+    errSelectiveDisclosureNotAllowed: "La condivisione riservata richiede il piano Gold o superiore.",
     errGeneric: "Operazione non riuscita: {msg}",
     errUnknown: "errore sconosciuto",
 
-    errChallengeUnavailable: "Impossibile ottenere la challenge di autenticazione dal backend.",
-    errAuthRejected: "Autenticazione rifiutata dal backend: {reason}",
-    errUploadFailed: "Upload IPFS fallito (HTTP {status})",
-    errReadFailed: "Lettura IPFS fallita",
+    errChallengeUnavailable: "Impossibile avviare l'accesso sicuro al server. Riprova tra poco.",
+    errAuthRejected: "Accesso rifiutato dal server ({reason}).",
+    errUploadFailed: "Caricamento del file non riuscito (errore {status}).",
+    errReadFailed: "Lettura del file non riuscita.",
 
     dateLocale: "it-IT",
   },
   en: {
     pageTitle: "Supplier Trust Registry — ChainIntegrate",
     connecting: "Connecting…",
-    connectButton: "Connect Universal Profile",
-    logoutBtn: "Disconnect",
+    connectButton: "Sign in with Universal Profile",
+    logoutBtn: "Sign out",
     averagesLabel: "Average",
     notEnoughDataForChart: "Not enough data",
     periodAverageLabel: "Average per evaluation",
@@ -619,7 +622,7 @@ const I18N = {
     footerTelegram: "Telegram support",
     backToTopLabel: "Back to top",
     howItWorksLabel: "How it works",
-    noExtension: "No Universal Profile extension detected. Install the UP Browser Extension to continue (or, on mobile, open this page from your wallet app's built-in browser).",
+    noExtension: "Signing in requires the Universal Profile browser extension. On a smartphone, open this page from the browser built into the Universal Profile app.",
     noAccount: "No account connected.",
 
     secretCode: "Secret code",
@@ -650,48 +653,51 @@ const I18N = {
     evaluationDateLabel: "Date the evaluation refers to",
     documentLabel: "Attached document (optional)",
     documentHint: "Follows the same public/private choice as this evaluation.",
-    documentLocked: "Attaching a document requires Gold Membership.",
+    documentLocked: "Attaching a document requires the Gold plan.",
     noteLabel: "Notes",
     notePlaceholder: "Optional remarks",
     makePublicTitle: "Make this evaluation public",
-    makePublicDesc: "Anyone reading the blockchain will be able to read it — forever",
+    makePublicDesc: "Anyone will be able to read it, forever",
     makePublicWarning: "Once made public, this evaluation is readable by anyone, forever. Even if you switch it back later, content already published remains recoverable by anyone who already downloaded it.",
     saveEvaluationBtn: "Save evaluation",
     changeImageBtn: "Change image",
     previousValueLabel: "· previous: {value}",
     backToEditBtn: "Back to edit",
     confirmAndSaveBtn: "Confirm and save",
-    errImageCustomizationNotAllowed: "Custom images require Silver tier or higher.",
+    errImageCustomizationNotAllowed: "Custom images require the Silver plan or higher.",
 
     verifying: "Verifying…",
     wrongCode: "Wrong code — it doesn't match the private data already stored in this registry.",
 
     yourRegistries: "Your Registries",
-    usedOfTier: "{count} / {max} used for your tier",
+    usedOfTier: "{count} of {max} included in your plan",
     registryFallbackName: "Registry #{index}",
     openBtn: "Open",
-    noMembershipTitle: "No recognized Membership",
-    noMembershipDesc: "You need at least a ChainIntegrate Membership (Bronze or higher)<br/>linked to this Universal Profile to mint a Registry.",
-    mintFirstTitle: "Mint your first Registry",
-    mintNewTitle: "New Registry",
+    noMembershipTitle: "No active Membership",
+    noMembershipDesc: "Creating a registry requires an active ChainIntegrate Membership (Bronze or higher)<br/>linked to this profile.",
+    mintFirstTitle: "Create your first registry",
+    mintNewTitle: "New registry",
     mintLabelLabel: 'Label (e.g. "Service suppliers")',
     mintLabelPlaceholder: "A name to recognize it by",
-    mintBtn: "Mint",
-    maxRegistriesReached: "You've reached the maximum number of registries for your tier ({max}).",
-    confirmFromWallet: "Confirm from your wallet…",
-    openExtensionToSign: "Open the UP extension/app to confirm the signature.",
-    txInProgress: "Transaction in progress…",
-    txPendingConfirmation: "Transaction sent, waiting for on-chain confirmation — this can take a few seconds.",
-    registryMintedOpening: "Registry minted, opening…",
-    noRegistryFound: "No registry found for this tokenId.",
+    mintBtn: "Create registry",
+    maxRegistriesReached: "You've reached the maximum number of registries on your plan ({max}).",
+    confirmFromWallet: "Confirm in the Universal Profile app…",
+    openExtensionToSign: "Open the Universal Profile extension or app to confirm.",
+    txInProgress: "Saving…",
+    txPendingConfirmation: "Sent, waiting for confirmation — this can take a few seconds.",
+    registryMintedOpening: "Registry created, opening…",
+    noRegistryFound: "Registry not found.",
 
     backToRegistries: "← Your registries",
+    technicalDetails: "Technical details",
+    registryIdLabel: "Registry identifier",
+    evaluationNumber: "Evaluation no. {id}",
     unnamedRegistry: "Unnamed registry",
     suppliersCount: "{count} / {max} suppliers",
     ofMaxSuppliers: "/ {max} suppliers",
-    schemaNotDefined: "Schema not defined yet",
-    schemaDefined: "Schema defined",
-    schemaCurrentVersion: "Current schema: version {v}",
+    schemaNotDefined: "Criteria not defined yet",
+    schemaDefined: "Criteria defined",
+    schemaCurrentVersion: "Criteria: version {v}",
     addSupplierBtn: "+ New supplier",
 
     defineSchemaTitle: "Define the evaluation criteria",
@@ -700,12 +706,12 @@ const I18N = {
     criteriaPlaceholder: "Timeliness\nQuality\nDocumentation\nResponsiveness",
     minValueLabel: "Minimum value",
     maxValueLabel: "Maximum value",
-    saveSchemaBtn: "Save schema",
+    saveSchemaBtn: "Save criteria",
     atLeastOneCriterion: "Enter at least one criterion.",
     minLessThanMax: "The minimum must be lower than the maximum.",
 
-    membershipRevokedWarning: "Your Membership is no longer recognized by any tier. The contract already blocks new registries, suppliers, images, and selective disclosure; from here you can no longer add new evaluations to existing suppliers.",
-    addEvaluationLocked: "Not available: your Membership is no longer valid.",
+    membershipRevokedWarning: "Your Membership is no longer active. You can't create new registries or suppliers, change the image or add evaluations; data already saved remains available.",
+    addEvaluationLocked: "Not available: your Membership is no longer active.",
 
     noSuppliersYet: "No suppliers yet — start by adding one.",
     loadingLabel: "…loading…",
@@ -734,19 +740,19 @@ const I18N = {
     rangeError: '"{label}" must be between {min} and {max} (you entered {value}).',
     emptyValue: "an empty value",
 
-    errRegistryAlreadyMinted: "You already have a Registry minted for this UP.",
-    errNoRecognizedMembership: "No recognized Membership on this UP.",
-    errSupplierLimitReached: "You've reached the maximum number of suppliers for your tier.",
-    errParamLimitReached: "Too many criteria for your current tier.",
-    errNotRegistryOwner: "Only the Registry owner can perform this action.",
-    errSelectiveDisclosureNotAllowed: "Selective disclosure requires Gold tier or higher.",
+    errRegistryAlreadyMinted: "You already have a registry on this profile.",
+    errNoRecognizedMembership: "No active Membership on this profile.",
+    errSupplierLimitReached: "You've reached the maximum number of suppliers on your plan.",
+    errParamLimitReached: "Too many criteria for your current plan.",
+    errNotRegistryOwner: "Only the registry owner can perform this action.",
+    errSelectiveDisclosureNotAllowed: "Confidential sharing requires the Gold plan or higher.",
     errGeneric: "Operation failed: {msg}",
     errUnknown: "unknown error",
 
-    errChallengeUnavailable: "Unable to get the authentication challenge from the backend.",
-    errAuthRejected: "Authentication rejected by the backend: {reason}",
-    errUploadFailed: "IPFS upload failed (HTTP {status})",
-    errReadFailed: "IPFS read failed",
+    errChallengeUnavailable: "Unable to start the secure sign-in with the server. Please try again shortly.",
+    errAuthRejected: "Sign-in rejected by the server ({reason}).",
+    errUploadFailed: "File upload failed (error {status}).",
+    errReadFailed: "Could not read the file.",
 
     dateLocale: "en-GB",
   },
@@ -867,8 +873,18 @@ async function decryptBytes(bytes, key) {
   return new Uint8Array(plaintextBuf);
 }
 
+// Il contentHash di un JSON privato finisce in chiaro sulla catena. Senza
+// un valore casuale dentro il JSON, chi conosce lo schema (pubblico) o ha
+// una lista di nomi plausibili potrebbe ricalcolare l'hash per tentativi
+// e ricostruire il contenuto senza conoscere il codice segreto. Il sale
+// viaggia DENTRO il blob cifrato: chi decifra lo ritrova e puo' sempre
+// ricalcolare l'hash per verificarne l'integrita'; chi non decifra non
+// ha modo di indovinarlo (256 bit casuali, diversi per ogni scrittura).
+// I JSON scritti prima di questa modifica non hanno "salt" e si leggono
+// esattamente come prima: chi legge usa solo i campi che conosce.
 async function encryptJSON(obj, key) {
-  const plaintext = new TextEncoder().encode(JSON.stringify(obj));
+  const salt = ethers.hexlify(crypto.getRandomValues(new Uint8Array(32)));
+  const plaintext = new TextEncoder().encode(JSON.stringify({ ...obj, salt }));
   return encryptBytes(plaintext, key);
 }
 
@@ -1221,7 +1237,6 @@ async function renderRegistrySelector(forceList = false) {
               </div>
               <div>
                 <strong>${escapeHtml(ev.args.label || t("registryFallbackName", { index: ev.args.index }))}</strong>
-                <div class="mono" style="font-size:11px;">${ev.args.tokenId.slice(0, 18)}…</div>
               </div>
             </div>
             <button class="btn btn-ghost open-registry-btn" data-token-id="${ev.args.tokenId}">${t("openBtn")}</button>
@@ -1319,7 +1334,11 @@ async function renderDashboard() {
         <div>
           <button class="btn btn-ghost" id="btn-back-to-list" style="padding:6px 12px; font-size:13px; margin-bottom:10px;">${t("backToRegistries")}</button>
           <h2 style="margin:0;">${escapeHtml(state.registryLabel || t("unnamedRegistry"))}</h2>
-          <div class="mono">${state.tokenId}</div>
+          <details class="muted" style="font-size:12px; margin-top:4px;">
+            <summary style="cursor:pointer;">${t("technicalDetails")}</summary>
+            <div>${t("registryIdLabel")}:</div>
+            <div class="mono">${state.tokenId}</div>
+          </details>
         </div>
       </div>
       <div class="row">
@@ -1532,7 +1551,6 @@ async function renderSuppliers() {
           ${isNamePublic ? t("loadingLabel") : t("supplierFallbackName", { id: supplierId })}
         </strong>
       </div>
-      <div class="mono" style="margin-top:4px;">nameHash: ${nameHash.slice(0, 18)}…</div>
       ${state.isOwner && state.isRevoked
         ? `<div class="muted" style="font-size:12px; margin-top:10px;">${t("addEvaluationLocked")}</div>`
         : `<button class="btn btn-ghost" data-supplier-id="${supplierId}" style="margin-top:10px;">${t("addEvaluationBtn")}</button>`}
@@ -1813,7 +1831,7 @@ async function renderEvaluationsForSupplier(supplierId) {
   container.innerHTML = resolved.map(r => `
     <div style="padding:8px 0; border-top:1px solid var(--powder-line);">
       <div class="row-between">
-        <span class="mono">#${r.evaluationId} · ${r.contentHash.slice(0, 14)}…${r.supersedes > 0n ? t("correctsHash", { id: r.supersedes }) : ""}</span>
+        <span class="muted" style="font-size:12px; font-weight:600;">${t("evaluationNumber", { id: r.evaluationId })}${r.supersedes > 0n ? t("correctsHash", { id: r.supersedes }) : ""}</span>
         <span class="badge ${r.isPublic ? "badge-public" : "badge-private"}">${r.isPublic ? t("publicBadge") : t("privateBadge")}</span>
       </div>
       <div class="muted" style="font-size:12px; margin-top:2px;">
