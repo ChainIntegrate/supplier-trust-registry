@@ -154,7 +154,6 @@
 
 <h2>Data and trust</h2>
 <p>Every entry is saved together with a digital fingerprint of its content, so anyone who can read it can check it hasn't been altered since. For private data, the fingerprint also includes a random value hidden inside the encrypted content: it can be checked by whoever knows the secret code, but it can't be used to guess what's written.</p>
-<p class="muted" style="font-size:13px;">Private data saved before 25 September 2026 has a fingerprint without this random value: someone who guesses the exact content (for example the exact name of a supplier, or the scores of an evaluation without notes) could confirm the guess. The content itself remains encrypted.</p>
 
 <div class="card muted" style="font-size:13px;">
   <strong>For technical readers:</strong> saves are transactions on the LUKSO blockchain (the registry is a non-transferable LSP8 token); content is stored on IPFS; private content is encrypted client-side with AES-256-GCM using a key derived from the secret code with PBKDF2-SHA256; fingerprints are keccak256 hashes.
@@ -221,7 +220,6 @@
 
 <h2>Dati e fiducia</h2>
 <p>Ogni voce viene salvata insieme a un'impronta digitale del suo contenuto, così chi può leggerla può verificare che non sia stata alterata da allora. Per i dati privati l'impronta include anche un valore casuale nascosto dentro il contenuto cifrato: la può verificare chi conosce il codice segreto, ma non può essere usata per indovinare cosa c'è scritto.</p>
-<p class="muted" style="font-size:13px;">I dati privati salvati prima del 25 settembre 2026 hanno un'impronta senza questo valore casuale: chi indovina il contenuto esatto (per esempio il nome esatto di un fornitore, o i punteggi di una valutazione senza note) potrebbe confermare l'ipotesi. Il contenuto in sé resta cifrato.</p>
 
 <div class="card muted" style="font-size:13px;">
   <strong>Per i lettori tecnici:</strong> i salvataggi sono transazioni sulla blockchain LUKSO (il registro è un token LSP8 non trasferibile); il contenuto è su IPFS; i dati privati sono cifrati lato client con AES-256-GCM, con chiave derivata dal codice segreto tramite PBKDF2-SHA256; le impronte sono hash keccak256.

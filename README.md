@@ -192,9 +192,11 @@ deployato o dato già scritto on-chain), solo documentato
   lettura dei dati vecchi (senza `salt`) è invariata. Rimossa anche la
   visualizzazione di `nameHash` nell'interfaccia.
 - 📌 **P1-bis — Dati privati scritti prima della correzione.** Restano con
-  l'hash senza sale, per sempre (on-chain). Documentato in "Come funziona".
-  Mitigazione possibile per casi sensibili: registrare di nuovo il
-  fornitore/la valutazione con la versione corretta.
+  l'hash senza sale, per sempre (on-chain). Al momento della correzione il
+  registro era usato da una sola azienda, già informata
+  direttamente: nessuna nota pubblica necessaria. Mitigazione possibile per
+  casi sensibili: registrare di nuovo il fornitore/la valutazione con la
+  versione corretta.
 - ✅ **P2 — "Come funziona" prometteva più privacy del reale.** Riscritta la
   sezione dati/fiducia; aggiunto l'elenco dei metadati sempre visibili anche
   per i dati privati (esistenza, numero, date, etichetta, criteri).
