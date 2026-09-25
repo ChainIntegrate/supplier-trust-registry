@@ -200,11 +200,18 @@ deployato o dato già scritto on-chain), solo documentato
 - ✅ **P2 — "Come funziona" prometteva più privacy del reale.** Riscritta la
   sezione dati/fiducia; aggiunto l'elenco dei metadati sempre visibili anche
   per i dati privati (esistenza, numero, date, etichetta, criteri).
-- ⏳ **P3 — Robustezza del codice segreto.** Nessun requisito minimo.
+- ✅ **P3 — Robustezza del codice segreto.** Nessun vincolo tecnico imposto
+  (scelta deliberata); il testo di creazione del codice e "Come funziona"
+  suggeriscono una frase di qualche parola invece di una parola sola.
 - ⏳ **P4 — Risorse di terze parti caricate dal browser** (font, librerie,
   gateway di lettura): trasferimento di dati dei visitatori a terzi.
-- ⏳ **P6 — Pubblicazione di immagine/etichetta di un registro come metadata
-  standard dal pannello admin**: manca un consenso esplicito dell'utente.
+- ✅ **P5 — Metadati sempre visibili anche per i dati privati** (esistenza,
+  numero e date di fornitori/valutazioni, etichetta del registro, criteri):
+  inevitabili per rendere lo storico verificabile, spiegati in "Come funziona".
+- ✅ **P6 — Pubblicazione di immagine/etichetta di un registro come metadata
+  standard dal pannello admin.** Procedura: l'admin pubblica solo dopo
+  consenso del proprietario del registro via email, con allegata l'immagine
+  da pubblicare. Promemoria aggiunto nel pannello admin.
 
 ### Sicurezza
 
