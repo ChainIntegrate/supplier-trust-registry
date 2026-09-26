@@ -28,6 +28,7 @@ const PORT = process.env.PORT || 3010;
 const JWT_SECRET = process.env.JWT_SECRET;
 const LUKSO_RPC_URL = process.env.LUKSO_RPC_URL;
 const REGISTRY_CONTRACT_ADDRESS = process.env.REGISTRY_CONTRACT_ADDRESS;
+const IPFS_API_URL = process.env.IPFS_API_URL;
 const MAX_UPLOAD_BYTES = parseInt(process.env.MAX_UPLOAD_BYTES || "10485760", 10); // 10 MB
 // Sotto questa soglia, qualunque tier puo' caricare (JSON di criteri/note,
 // piccoli per natura). Sopra, serve Gold — verificato qui sul server, non
@@ -43,7 +44,7 @@ const CHALLENGE_DOMAIN = (() => {
   }
 })();
 
-for (const [name, value] of Object.entries({ JWT_SECRET, LUKSO_RPC_URL, REGISTRY_CONTRACT_ADDRESS })) {
+for (const [name, value] of Object.entries({ JWT_SECRET, LUKSO_RPC_URL, REGISTRY_CONTRACT_ADDRESS, IPFS_API_URL })) {
   if (!value) {
     console.error(`Variabile ambiente mancante: ${name}. Controlla .env (vedi .env.example).`);
     process.exit(1);
