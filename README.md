@@ -260,7 +260,16 @@ deployato o dato già scritto on-chain), solo documentato
 
 ### Sicurezza
 
-- ⏳ **S1** — gestione degli allegati lato visitatore (priorità alta).
+- ✅ **S1 — Allegati aperti come pagine del sito.** Il tipo dell'allegato
+  lo dichiara chi lo carica e un `blob:` URL appartiene al dominio del sito:
+  un allegato HTML/SVG di una valutazione pubblica, aperto da un visitatore,
+  eseguiva codice come una pagina nostra, con accesso alla pagina d'origine
+  (verificato: il titolo della pagina del registro veniva modificato).
+  Corretto in `openAttachmentSafely`: il tipo si ricava dai byte del file,
+  mai dal JSON; si aprono (in scheda isolata, `noopener`) solo PDF e
+  immagini PNG/JPEG/GIF/WebP riconosciuti, tutto il resto si scarica come
+  `application/octet-stream` con nome ripulito. Vale anche per gli allegati
+  già caricati.
 - ⏳ **S2** — controllo di autorizzazione sull'upload da rafforzare.
 - ✅ **S3 (parte 1)** — indirizzo dell'API IPFS spostato da codice a `.env`
   (`IPFS_API_URL`, come in traceability-registry). Resta nella cronologia
