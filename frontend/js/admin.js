@@ -1,0 +1,1154 @@
+import { ethers } from "/shared/ethers/6.13.4/ethers.min.js";
+
+const REGISTRY_ABI_JSON = window.REGISTRY_ABI_JSON;
+
+// =======================================================================
+// CONFIGURAZIONE — indirizzo del contratto da amministrare. Puntato alla
+// V3 (l'ultima), ma il pannello funziona anche contro V1/V2 finche' le
+// funzioni chiamate qui esistono anche li' — set/getTierLimits con 7
+// parametri e' specifico V3, quindi per amministrare V1/V2 servirebbe un
+// pannello con firme diverse (non costruito qui, stesso principio "un
+// file per versione" gia' seguito per i contratti).
+// =======================================================================
+const CONFIG = {
+  REGISTRY_CONTRACT: "0xFa143308D85b81Ed57547049F4A7718c3117A064", // MAINNET V3
+  DEPLOY_BLOCK: 8268392, // obbligatorio su ogni queryFilter, vedi nota in frontend/index.html
+  RPC_URL: window.location.origin + "/api/rpc", // proxy del backend verso il nodo proprio
+  IPFS_GATEWAY: "https://ipfs.chainintegrate.it", // nodo proprio, solo file pinnati da noi
+  IPFS_FALLBACK_GATEWAY: "https://api.universalprofile.cloud", // gateway LUKSO, vedi fetchFromIPFS in index.html
+};
+
+const ABI = REGISTRY_ABI_JSON;
+const $ = (id) => document.getElementById(id);
+
+// =======================================================================
+// LETTURA EVENTI A FINESTRE — stessa funzione, stesso motivo di
+// frontend/index.html: eth_getLogs limitato a 10.000 blocchi per
+// richiesta, la distanza dal deploy la supera gia'.
+// =======================================================================
+const MAX_BLOCK_RANGE = 9000;
+
+async function queryFilterChunked(contract, filter, fromBlock) {
+  const provider = contract.runner.provider ?? contract.runner;
+  const latest = await provider.getBlockNumber();
+  let allEvents = [];
+  let start = fromBlock;
+  while (start <= latest) {
+    const end = Math.min(start + MAX_BLOCK_RANGE, latest);
+    const chunk = await contract.queryFilter(filter, start, end);
+    allEvents = allEvents.concat(chunk);
+    start = end + 1;
+  }
+  return allEvents;
+}
+
+const state = {
+  ethersProvider: null,
+  readOnlyProvider: null, // Blockscout, solo per letture
+  signer: null,
+  visitorAccount: null,
+  contract: null,
+  contractReadOnly: null,
+  isContractOwner: false,
+  sessionToken: null,
+  sessionExpiresAt: 0,
+  membershipContracts: [], // { address, accepted }
+};
+
+function setStatus(msg, isError = false) {
+  const el = $("status-line");
+  if (!el) return;
+  el.textContent = msg;
+  el.className = isError ? "error" : "ok";
+}
+
+function shortAddr(addr) {
+  if (!addr) return "";
+  return addr.slice(0, 6) + "…" + addr.slice(-4);
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = String(str ?? "");
+  return div.innerHTML;
+}
+
+// =======================================================================
+// SESSIONE / IPFS — stesso identico meccanismo di index.html: challenge
+// firmata dalla UP -> token -> upload proxato dal backend. Qui ad
+// autenticarsi e' la UP proprietaria del CONTRATTO, non di un registro.
+// =======================================================================
+async function ensureSession() {
+  const MARGIN_MS = 60 * 1000;
+  if (state.sessionToken && state.sessionExpiresAt > Date.now() + MARGIN_MS) {
+    return state.sessionToken;
+  }
+  const address = state.visitorAccount;
+  const challengeRes = await fetch("/api/auth/challenge", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ address }),
+  });
+  if (!challengeRes.ok) throw new Error("Could not get the authentication challenge from the backend.");
+  // challengeToken: prova firmata dal server che questa challenge l'ha emessa lui
+  // (nessuno stato lato server, vedi backend/auth.js) — va rimandato con la firma.
+  const { message, challengeToken } = await challengeRes.json();
+
+  const signature = await state.signer.signMessage(message);
+
+  const verifyRes = await fetch("/api/auth/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ address, signature, message, challengeToken }),
+  });
+  if (!verifyRes.ok) {
+    const body = await verifyRes.json().catch(() => ({}));
+    throw new Error("Authentication rejected by the backend: " + (body.error || verifyRes.status));
+  }
+  const { token } = await verifyRes.json();
+  state.sessionToken = token;
+  state.sessionExpiresAt = Date.now() + 30 * 60 * 1000;
+  return token;
+}
+
+async function uploadToIPFS(bytes) {
+  const token = await ensureSession();
+  const form = new FormData();
+  form.append("file", new Blob([bytes]));
+  const res = await fetch("/api/ipfs/upload", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  if (!res.ok) {
+    if (res.status === 401) state.sessionToken = null;
+    throw new Error("IPFS upload failed (HTTP " + res.status + ")");
+  }
+  const { cid } = await res.json();
+  return `ipfs://${cid}`;
+}
+
+// Stessa logica di frontend/index.html (vedi commento li').
+const IPFS_TIMEOUT_MS = 8000;
+// Il gateway del nodo ha un limite di richieste per IP (Nginx limit_req):
+// oltre il limite risponde 429 (o 503, configurazione precedente). Non e'
+// un "file mancante": si aspetta e si riprova, invece di ripiegare subito
+// sul gateway esterno per un file che il nodo ha.
+const IPFS_RETRY_DELAYS_MS = [500, 1000, 2000];
+
+async function fetchGatewayWithRetry(url, options = {}) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, { ...options, signal: AbortSignal.timeout(IPFS_TIMEOUT_MS) });
+    const throttled = res.status === 429 || res.status === 503;
+    if (!throttled || attempt >= IPFS_RETRY_DELAYS_MS.length) return res;
+    res.body?.cancel().catch(() => {});
+    const retryAfter = Number(res.headers.get("retry-after"));
+    const delay = retryAfter > 0 ? Math.min(retryAfter * 1000, 5000) : IPFS_RETRY_DELAYS_MS[attempt];
+    await new Promise(resolve => setTimeout(resolve, delay));
+  }
+}
+const CID_RE = /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|b[a-z2-7]{50,})$/;
+
+async function fetchFromIPFS(uri, expectedHash) {
+  const cid = String(uri ?? "").replace(/^ipfs:\/\//, "");
+  if (!CID_RE.test(cid)) throw new Error("IPFS read failed");
+
+  const sources = [
+    { base: CONFIG.IPFS_GATEWAY, trusted: true },
+    { base: CONFIG.IPFS_FALLBACK_GATEWAY, trusted: false },
+  ];
+  for (const { base, trusted } of sources) {
+    let bytes;
+    try {
+      const res = await fetchGatewayWithRetry(`${base}/ipfs/${cid}`);
+      if (!res.ok) continue;
+      bytes = new Uint8Array(await res.arrayBuffer());
+    } catch {
+      continue; // timeout o rete: prova la fonte successiva
+    }
+    if (!trusted && expectedHash && ethers.keccak256(bytes) !== String(expectedHash).toLowerCase()) {
+      console.warn("Contenuto dal gateway di fallback non corrispondente all'hash on-chain, scartato:", cid);
+      continue;
+    }
+    return bytes;
+  }
+  throw new Error("IPFS read failed");
+}
+
+function explainRevert(e) {
+  const name = e?.revert?.name || e?.errorName;
+  const known = {
+    NotRegistryOwner: "Only the registry owner can do this — not relevant here, unexpected error.",
+  };
+  if (name && known[name]) return known[name];
+  return "Operation failed: " + (e?.shortMessage || e?.message || "unknown error");
+}
+
+// =======================================================================
+// CONNESSIONE — stesso pattern di index.html: window.lukso, pagina
+// standalone, nessun Grid necessario.
+// =======================================================================
+async function connect() {
+  if (!window.lukso) {
+    renderError("No Universal Profile extension detected. Install the UP Browser Extension to continue.");
+    return;
+  }
+  state.ethersProvider = new ethers.BrowserProvider(window.lukso);
+  const accounts = await state.ethersProvider.send("eth_requestAccounts", []);
+  state.visitorAccount = accounts[0] || null;
+  if (!state.visitorAccount) { renderError("No account connected."); return; }
+
+  state.signer = await state.ethersProvider.getSigner();
+  state.contract = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, ABI, state.signer);
+  // Stessa correzione di frontend/index.html: le letture usano Blockscout,
+  // non l'RPC dell'estensione UP (che puo' avere profondita' di
+  // conservazione limitata sugli eventi storici).
+  state.readOnlyProvider = new ethers.JsonRpcProvider(CONFIG.RPC_URL, undefined, { batchMaxCount: 1 });
+  state.contractReadOnly = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, ABI, state.readOnlyProvider);
+
+  $("btn-connect").textContent = shortAddr(state.visitorAccount);
+  $("btn-connect").disabled = true;
+  $("btn-logout").style.display = "inline-block";
+
+  if (typeof window.lukso.on === "function") {
+    window.lukso.on("accountsChanged", () => window.location.reload());
+    window.lukso.on("chainChanged", () => window.location.reload());
+  }
+
+  const contractOwner = await state.contractReadOnly.owner();
+  state.isContractOwner = contractOwner.toLowerCase() === state.visitorAccount.toLowerCase();
+
+  if (!state.isContractOwner) {
+    renderError(
+      `This account is not the owner of the contract. Owner: ${contractOwner}. ` +
+      `Connect with that Universal Profile to administer this panel.`
+    );
+    return;
+  }
+
+  await renderDashboard();
+}
+
+function renderError(msg) {
+  $("app-root").innerHTML = `<div class="empty-state">${escapeHtml(msg)}</div>`;
+}
+
+// =======================================================================
+// DASHBOARD ADMIN
+// =======================================================================
+async function renderDashboard() {
+  const root = $("app-root");
+  root.innerHTML = `
+    <div class="card">
+      <h2>Contract</h2>
+      <div class="mono">${CONFIG.REGISTRY_CONTRACT}</div>
+      <p class="muted">Connected as owner: ${shortAddr(state.visitorAccount)}</p>
+    </div>
+
+    <div class="card">
+      <div class="row-between">
+        <h2>Accepted Membership contracts</h2>
+      </div>
+      <p class="muted">Any contract exposing <span class="mono" style="display:inline;">tierOf(address)</span> can be accepted here — the registry takes the best (highest) limits across all of them for a given user.</p>
+      <div id="membership-list"></div>
+      <div class="divider"></div>
+      <label for="new-membership-address">Add a Membership contract</label>
+      <input type="text" id="new-membership-address" placeholder="0x…" />
+      <button class="btn" id="btn-add-membership" style="margin-top:10px;">Add</button>
+      <div id="membership-status" class="muted" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Tier limits</h2>
+      <p class="muted">Set per (Membership contract, tier). Tier numbers must match what that Membership contract itself uses (e.g. Bronze=1, Silver=2, Gold=3 for the current ChainIntegrate Membership).</p>
+      <label for="tier-membership-select">Membership contract</label>
+      <select id="tier-membership-select"></select>
+      <div class="grid-2">
+        <div>
+          <label for="tier-number">Tier</label>
+          <input type="number" id="tier-number" value="1" />
+        </div>
+        <div>
+          <label for="tier-max-suppliers">Max suppliers</label>
+          <input type="number" id="tier-max-suppliers" value="5" />
+        </div>
+        <div>
+          <label for="tier-max-params">Max criteria</label>
+          <input type="number" id="tier-max-params" value="4" />
+        </div>
+        <div>
+          <label for="tier-max-registries">Max registries</label>
+          <input type="number" id="tier-max-registries" value="1" />
+        </div>
+      </div>
+      <label style="margin-top:12px;"><input type="checkbox" id="tier-disclose" style="width:auto; margin-right:6px;" />Selective disclosure allowed (Gold)</label>
+      <label><input type="checkbox" id="tier-image" style="width:auto; margin-right:6px;" />Custom registry image allowed (Silver+)</label>
+      <div class="row" style="margin-top:12px; gap:10px;">
+        <button class="btn btn-ghost" id="btn-load-tier">Load current values</button>
+        <button class="btn" id="btn-save-tier">Save tier</button>
+      </div>
+      <div id="tier-status" class="muted" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Collection metadata (LSP4)</h2>
+      <p class="muted">Name, description, icon and banner shown for the collection on explorers and the UP Store. This does not affect any individual registry.</p>
+
+      <div id="metadata-current" style="margin-bottom:14px;"></div>
+
+      <label for="lsp4-name">Name</label>
+      <input type="text" id="lsp4-name" placeholder="ChainIntegrate Supplier Trust Registry" />
+      <label for="lsp4-description">Description</label>
+      <input type="text" id="lsp4-description" placeholder="Short description" />
+
+      <label for="lsp4-icon">Icon (square)</label>
+      <input type="file" id="lsp4-icon" accept="image/*" />
+      <div class="muted" style="font-size:12px; margin-top:2px;">
+        Empirically confirmed to work at 750×750 — larger sizes (e.g. 3000×3000) failed to
+        render in the past. Stay at or under 800px per side.
+      </div>
+      <div id="lsp4-icon-warning" class="warning-box" style="display:none;"></div>
+
+      <label for="lsp4-banner" style="margin-top:14px;">Banner (wide, optional)</label>
+      <input type="file" id="lsp4-banner" accept="image/*" />
+      <div class="muted" style="font-size:12px; margin-top:2px;">
+        <strong>Not an official LSP4 field</strong> — this uses the same
+        <span class="mono" style="display:inline;">backgroundImage</span> key that worked for
+        LSP3 profile banners on another ChainIntegrate project (≤1800px there), but it has
+        <strong>not been verified to render for an LSP4 collection specifically</strong>.
+        Treat it as "bonus if the viewer supports it," not guaranteed.
+      </div>
+      <div id="lsp4-banner-warning" class="warning-box" style="display:none;"></div>
+
+      <button class="btn" id="btn-save-metadata" style="margin-top:14px;">Save collection metadata</button>
+      <div id="metadata-status" class="muted" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Per-registry image → standard token image</h2>
+      <p class="muted">
+        Registry owners can set a custom image (Silver+), but it only shows inside our own
+        product — it uses a custom function, not the LSP4/LSP8 standard, so tools like
+        universaleverything.io never see it (see project notes for why). This publishes the
+        <em>same already-uploaded image</em> as that specific token's standard LSP4 metadata,
+        making it visible in standard NFT tooling too — no re-upload, just a re-reference.
+      </p>
+      <div class="warning-box">Publish only after the registry owner has given consent by email, with the image to publish attached.</div>
+      <div id="registry-image-list"></div>
+      <button class="btn btn-ghost" id="btn-refresh-registry-list" style="margin-top:10px;">Refresh list</button>
+    </div>
+
+    <div class="card">
+      <h2>Files to re-pin on the IPFS node</h2>
+      <p class="muted">
+        The node only serves files it has pinned. Files uploaded when uploads still went through Pinata
+        are read through the LUKSO gateway fallback. This scans every file referenced by the contract,
+        checks which ones are missing from the node and prepares the <span class="mono" style="display:inline;">ipfs pin add</span>
+        commands to run on the node.
+      </p>
+      <button class="btn" id="btn-repin-scan">Scan</button>
+      <div id="repin-status" class="muted" style="margin-top:8px;"></div>
+      <div id="repin-results" style="margin-top:10px;"></div>
+      <div id="repin-private"></div>
+    </div>
+  `;
+
+  await renderMembershipList();
+  wireMembershipForm();
+  wireTierForm();
+  wireMetadataForm();
+  await renderCurrentMetadataStatus();
+  await renderRegistryImageList();
+  $("btn-refresh-registry-list").addEventListener("click", renderRegistryImageList);
+  wireRepinTool();
+}
+
+// =======================================================================
+// MEMBERSHIP — elenco ricavato dagli eventi (nessun getter "lista
+// completa" nel contratto), filtrato sullo stato accettato CORRENTE
+// (isAcceptedMembershipContract), perche' un indirizzo puo' essere stato
+// aggiunto e poi rimosso.
+// =======================================================================
+async function getKnownMembershipAddresses() {
+  const addedEvents = await queryFilterChunked(
+    state.contractReadOnly,
+    state.contractReadOnly.filters.MembershipContractAdded(),
+    CONFIG.DEPLOY_BLOCK
+  );
+  const seen = [...new Set(addedEvents.map(ev => ev.args.membershipContract))];
+  const withStatus = await Promise.all(seen.map(async (addr) => ({
+    address: addr,
+    accepted: await state.contractReadOnly.isAcceptedMembershipContract(addr),
+  })));
+  return withStatus;
+}
+
+async function renderMembershipList() {
+  const list = $("membership-list");
+  list.innerHTML = `<p class="muted">Loading…</p>`;
+
+  state.membershipContracts = await getKnownMembershipAddresses();
+  const accepted = state.membershipContracts.filter(m => m.accepted);
+
+  if (accepted.length === 0) {
+    list.innerHTML = `<p class="muted">No Membership contract accepted yet — minting is blocked for everyone until at least one is added.</p>`;
+  } else {
+    list.innerHTML = accepted.map(m => `
+      <div class="list-item row-between">
+        <span class="mono">${m.address}</span>
+        <button class="btn btn-danger remove-membership-btn" data-address="${m.address}" style="padding:4px 10px; font-size:12px;">Remove</button>
+      </div>
+    `).join("");
+    list.querySelectorAll(".remove-membership-btn").forEach(btn => {
+      btn.addEventListener("click", () => removeMembership(btn.dataset.address));
+    });
+  }
+
+  // popola il menu a tendina della sezione tier con TUTTI quelli conosciuti,
+  // anche i rimossi in passato (per poterne comunque azzerare i limiti se serve)
+  const select = $("tier-membership-select");
+  select.innerHTML = state.membershipContracts.map(m =>
+    `<option value="${m.address}">${shortAddr(m.address)}${m.accepted ? "" : " (removed)"}</option>`
+  ).join("") || `<option value="">— add one first —</option>`;
+}
+
+function wireMembershipForm() {
+  $("btn-add-membership").addEventListener("click", async () => {
+    const address = $("new-membership-address").value.trim();
+    const status = $("membership-status");
+    if (!ethers.isAddress(address)) { status.textContent = "Not a valid address."; return; }
+
+    const btn = $("btn-add-membership");
+    btn.disabled = true;
+    status.textContent = "Confirm from your wallet…";
+    try {
+      const tx = await state.contract.addMembershipContract(address);
+      status.textContent = "Transaction in progress…";
+      await tx.wait();
+      status.textContent = "Added.";
+      $("new-membership-address").value = "";
+      await renderMembershipList();
+    } catch (e) {
+      status.textContent = explainRevert(e);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+async function removeMembership(address) {
+  if (!confirm(`Remove ${address} from accepted Membership contracts? Users whose tier came only from this contract will lose their limits immediately.`)) return;
+  setStatus("Confirm from your wallet…");
+  try {
+    const tx = await state.contract.removeMembershipContract(address);
+    setStatus("Transaction in progress…");
+    await tx.wait();
+    setStatus("Removed.");
+    await renderMembershipList();
+  } catch (e) {
+    setStatus(explainRevert(e), true);
+  }
+}
+
+// =======================================================================
+// TIER LIMITS
+// =======================================================================
+function wireTierForm() {
+  $("btn-load-tier").addEventListener("click", async () => {
+    const membershipContract = $("tier-membership-select").value;
+    const tier = Number($("tier-number").value);
+    const status = $("tier-status");
+    if (!membershipContract) { status.textContent = "Add a Membership contract first."; return; }
+
+    status.textContent = "Loading…";
+    try {
+      const [maxSuppliers, maxParams, canDiscloseSelectively, maxRegistries, canCustomizeImage, configured] =
+        await state.contractReadOnly.tierLimits(membershipContract, tier);
+      $("tier-max-suppliers").value = maxSuppliers.toString();
+      $("tier-max-params").value = maxParams.toString();
+      $("tier-max-registries").value = maxRegistries.toString();
+      $("tier-disclose").checked = canDiscloseSelectively;
+      $("tier-image").checked = canCustomizeImage;
+      status.textContent = configured ? "Current values loaded." : "Not configured yet for this tier — showing zeros.";
+    } catch (e) {
+      status.textContent = explainRevert(e);
+    }
+  });
+
+  $("btn-save-tier").addEventListener("click", async () => {
+    const membershipContract = $("tier-membership-select").value;
+    const tier = Number($("tier-number").value);
+    const status = $("tier-status");
+    const btn = $("btn-save-tier");
+    if (!membershipContract) { status.textContent = "Add a Membership contract first."; return; }
+
+    btn.disabled = true;
+    status.textContent = "Confirm from your wallet…";
+    try {
+      const tx = await state.contract.setTierLimits(
+        membershipContract,
+        tier,
+        BigInt($("tier-max-suppliers").value),
+        BigInt($("tier-max-params").value),
+        $("tier-disclose").checked,
+        BigInt($("tier-max-registries").value),
+        $("tier-image").checked
+      );
+      status.textContent = "Transaction in progress…";
+      await tx.wait();
+      status.textContent = "Saved.";
+    } catch (e) {
+      status.textContent = explainRevert(e);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+// =======================================================================
+// METADATA DI COLLEZIONE (LSP4) — VerifiableURI codificato con erc725.js,
+// stesso schema documentato in lsp4-metadata-notes.md: mai a mano.
+// =======================================================================
+const LSP4_METADATA_KEY = "0x9afb95cacc9f95858ec44aa8c3b685511002e30ae54415823f406128b85b238e";
+
+// Dimensioni VERE dell'immagine, non un valore indovinato — prima usavamo
+// 750x750 fisso per qualunque file, corretto per caso per un'icona quadrata
+// ma sbagliato per un banner largo. createImageBitmap legge le dimensioni
+// reali dal file stesso.
+async function getImageDimensions(bytes, mimeType) {
+  const blob = new Blob([bytes], { type: mimeType || "image/png" });
+  const bitmap = await createImageBitmap(blob);
+  const { width, height } = bitmap;
+  bitmap.close();
+  return { width, height };
+}
+
+function checkIconSizeWarning(width, height) {
+  const el = $("lsp4-icon-warning");
+  if (width > 800 || height > 800) {
+    el.textContent = `This icon is ${width}×${height}px — over 800px per side failed to render in the past. Consider resizing before uploading.`;
+    el.style.display = "block";
+  } else {
+    el.style.display = "none";
+  }
+}
+
+function checkBannerSizeWarning(width, height) {
+  const el = $("lsp4-banner-warning");
+  if (width > 1800 || height > 1800) {
+    el.textContent = `This banner is ${width}×${height}px — over 1800px per side (the LSP3 convention this borrows from) may not render reliably. Consider resizing.`;
+    el.style.display = "block";
+  } else {
+    el.style.display = "none";
+  }
+}
+
+// =======================================================================
+// STATO ATTUALE — legge DataChanged (evento standard ERC725Y, emesso
+// automaticamente ad ogni setData, nessun codice nostro necessario per
+// generarlo) filtrato sulla chiave LSP4Metadata, prende l'ULTIMO evento
+// per sapere quando e cosa e' stato pubblicato l'ultima volta. Con un
+// uso frequente del pannello, questo e' quello che risponde a "l'ho gia'
+// fatto? quando?" senza dover tenere il conto a mente.
+// =======================================================================
+async function renderCurrentMetadataStatus() {
+  const el = $("metadata-current");
+  el.innerHTML = `<p class="muted">Checking current metadata…</p>`;
+
+  const events = await queryFilterChunked(
+    state.contractReadOnly,
+    state.contractReadOnly.filters.DataChanged(LSP4_METADATA_KEY),
+    CONFIG.DEPLOY_BLOCK
+  );
+
+  if (events.length === 0) {
+    el.innerHTML = `<p class="muted">No collection metadata set yet.</p>`;
+    return;
+  }
+
+  const latest = events[events.length - 1];
+  const block = await latest.getBlock();
+  const when = new Date(Number(block.timestamp) * 1000).toLocaleString();
+
+  el.innerHTML = `<p class="muted">Last updated: <strong>${escapeHtml(when)}</strong> — loading current values…</p>`;
+
+  try {
+    const { ERC725 } = await import("/shared/erc725.js/0.28.2/erc725.min.js");
+    const schema = [{
+      name: "LSP4Metadata",
+      key: LSP4_METADATA_KEY,
+      keyType: "Singleton",
+      valueType: "bytes",
+      valueContent: "VerifiableURI",
+    }];
+    const decoded = ERC725.decodeData(
+      [{ keyName: "LSP4Metadata", value: latest.args.dataValue }],
+      schema
+    );
+    const metadataUrl = decoded[0]?.value?.url;
+    if (!metadataUrl) throw new Error("could not decode URL");
+
+    const bytes = await fetchFromIPFS(metadataUrl);
+    const json = JSON.parse(new TextDecoder().decode(bytes));
+    const meta = json.LSP4Metadata || {};
+    const iconUrl = meta.icon?.[0]?.url;
+    const bannerUrl = meta.backgroundImage?.[0]?.url;
+
+    let iconImg = "";
+    let bannerImg = "";
+    if (iconUrl) {
+      const iconBytes = await fetchFromIPFS(iconUrl);
+      iconImg = `<img src="${URL.createObjectURL(new Blob([iconBytes]))}" style="width:48px; height:48px; border-radius:6px; object-fit:cover;" />`;
+    }
+    if (bannerUrl) {
+      const bannerBytes = await fetchFromIPFS(bannerUrl);
+      bannerImg = `<img src="${URL.createObjectURL(new Blob([bannerBytes]))}" style="width:100%; max-height:80px; border-radius:6px; object-fit:cover; margin-top:6px;" />`;
+    }
+
+    el.innerHTML = `
+      <div class="card" style="background:var(--powder); border:none;">
+        <div class="row-between">
+          <p class="muted" style="margin:0;">Last updated: <strong>${escapeHtml(when)}</strong></p>
+        </div>
+        <div class="row" style="margin-top:8px; align-items:center;">
+          ${iconImg}
+          <div>
+            <strong>${escapeHtml(meta.name || "(no name)")}</strong>
+            <div class="muted" style="font-size:12px;">${escapeHtml(meta.description || "")}</div>
+          </div>
+        </div>
+        ${bannerImg}
+      </div>
+    `;
+  } catch (e) {
+    el.innerHTML = `<p class="muted">Last updated: <strong>${escapeHtml(when)}</strong> (could not preview current values: ${escapeHtml(e.message)})</p>`;
+  }
+}
+
+function wireMetadataForm() {
+  $("lsp4-icon").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) { $("lsp4-icon-warning").style.display = "none"; return; }
+    const { width, height } = await getImageDimensions(new Uint8Array(await file.arrayBuffer()), file.type);
+    checkIconSizeWarning(width, height);
+  });
+  $("lsp4-banner").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) { $("lsp4-banner-warning").style.display = "none"; return; }
+    const { width, height } = await getImageDimensions(new Uint8Array(await file.arrayBuffer()), file.type);
+    checkBannerSizeWarning(width, height);
+  });
+
+  $("btn-save-metadata").addEventListener("click", async () => {
+    const status = $("metadata-status");
+    const btn = $("btn-save-metadata");
+    const name = $("lsp4-name").value.trim();
+    const description = $("lsp4-description").value.trim();
+    const iconFile = $("lsp4-icon").files[0];
+    const bannerFile = $("lsp4-banner").files[0];
+
+    if (!name) { status.textContent = "Name is required."; return; }
+
+    btn.disabled = true;
+    try {
+      let iconEntry = [];
+      if (iconFile) {
+        status.textContent = "Reading icon dimensions…";
+        const iconBytes = new Uint8Array(await iconFile.arrayBuffer());
+        const { width, height } = await getImageDimensions(iconBytes, iconFile.type);
+        status.textContent = "Uploading icon…";
+        const iconHash = ethers.keccak256(iconBytes);
+        const iconUri = await uploadToIPFS(iconBytes);
+        iconEntry = [{
+          width, height, // dimensioni VERE lette dal file, non un valore fisso indovinato
+          url: iconUri,
+          verification: { method: "keccak256(bytes)", data: iconHash },
+        }];
+      }
+
+      let bannerEntry = [];
+      if (bannerFile) {
+        status.textContent = "Reading banner dimensions…";
+        const bannerBytes = new Uint8Array(await bannerFile.arrayBuffer());
+        const { width, height } = await getImageDimensions(bannerBytes, bannerFile.type);
+        status.textContent = "Uploading banner…";
+        const bannerHash = ethers.keccak256(bannerBytes);
+        const bannerUri = await uploadToIPFS(bannerBytes);
+        bannerEntry = [{
+          width, height,
+          url: bannerUri,
+          verification: { method: "keccak256(bytes)", data: bannerHash },
+        }];
+      }
+
+      const metadataJson = {
+        LSP4Metadata: {
+          name,
+          description,
+          links: [],
+          icon: iconEntry,
+          images: [],
+          // Campo non ufficiale — vedi avviso nel form. Lo includiamo solo
+          // se e' stato davvero caricato un banner, per non scrivere un
+          // array vuoto senza motivo.
+          ...(bannerEntry.length ? { backgroundImage: bannerEntry } : {}),
+          assets: [],
+          attributes: [],
+        },
+      };
+
+      status.textContent = "Uploading metadata…";
+      const metadataBytes = new TextEncoder().encode(JSON.stringify(metadataJson));
+      const metadataUri = await uploadToIPFS(metadataBytes);
+
+      status.textContent = "Encoding VerifiableURI…";
+      const { ERC725 } = await import("/shared/erc725.js/0.28.2/erc725.min.js");
+      const schema = [{
+        name: "LSP4Metadata",
+        key: LSP4_METADATA_KEY,
+        keyType: "Singleton",
+        valueType: "bytes",
+        valueContent: "VerifiableURI",
+      }];
+      const encoded = ERC725.encodeData(
+        [{ keyName: "LSP4Metadata", value: { json: metadataJson, url: metadataUri } }],
+        schema
+      );
+
+      status.textContent = "Confirm from your wallet…";
+      const tx = await state.contract.setData(encoded.keys[0], encoded.values[0]);
+      status.textContent = "Transaction in progress…";
+      await tx.wait();
+      status.textContent = "Collection metadata saved.";
+      await renderCurrentMetadataStatus();
+    } catch (e) {
+      status.textContent = explainRevert(e);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+// =======================================================================
+// IMMAGINE PER REGISTRO -> IMMAGINE STANDARD DEL TOKEN — elenca TUTTI i
+// registri mai mintati (nessun filtro per owner, e' un pannello admin),
+// mostra quali hanno gia' un'immagine custom impostata, e permette di
+// "pubblicarla" come metadata LSP4 standard per quello specifico token.
+//
+// Nessun ricaricamento dell'immagine: e' gia' su IPFS, la si RI-referenzia
+// dentro un nuovo, piccolo JSON di metadata (stesso schema della metadata
+// di collezione sopra), poi si scrive con setDataForTokenId invece di
+// setData — unica differenza reale, stessa identica codifica VerifiableURI.
+// =======================================================================
+async function renderRegistryImageList() {
+  const container = $("registry-image-list");
+  container.innerHTML = `<p class="muted">Loading…</p>`;
+
+  const mintEvents = await queryFilterChunked(
+    state.contractReadOnly,
+    state.contractReadOnly.filters.RegistryMinted(),
+    CONFIG.DEPLOY_BLOCK
+  );
+
+  if (mintEvents.length === 0) {
+    container.innerHTML = `<p class="muted">No registries minted yet.</p>`;
+    return;
+  }
+
+  const rows = await Promise.all(mintEvents.map(async (ev) => {
+    const { tokenId, owner, label } = ev.args;
+    const [customImageUri] = await state.contractReadOnly.getRegistryImage(tokenId);
+    return { tokenId, owner, label, hasCustomImage: !!customImageUri };
+  }));
+
+  container.innerHTML = rows.map(r => `
+    <div class="list-item row-between">
+      <div>
+        <strong>${escapeHtml(r.label || "Unnamed registry")}</strong>
+        <div class="mono" style="font-size:11px;">${r.tokenId.slice(0, 18)}… · owner ${shortAddr(r.owner)}</div>
+      </div>
+      ${r.hasCustomImage
+        ? `<button class="btn btn-ghost publish-image-btn" data-token-id="${r.tokenId}" data-label="${escapeHtml(r.label || "")}" style="padding:4px 10px; font-size:12px;">Publish as token image</button>`
+        : `<span class="muted" style="font-size:12px;">No custom image set</span>`}
+    </div>
+  `).join("");
+
+  container.querySelectorAll(".publish-image-btn").forEach(btn => {
+    btn.addEventListener("click", () => publishRegistryImageAsTokenImage(btn.dataset.tokenId, btn.dataset.label, btn));
+  });
+}
+
+async function publishRegistryImageAsTokenImage(tokenId, label, btn) {
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Reading current image…";
+  try {
+    const [uri, hash] = await state.contractReadOnly.getRegistryImage(tokenId);
+    if (!uri) throw new Error("No custom image set for this registry (list may be stale — refresh).");
+
+    // Dimensioni VERE, non indovinate — l'immagine di un registro puo'
+    // avere qualunque proporzione (chi la carica non e' vincolato a un
+    // quadrato), dichiarare 750x750 a prescindere era lo stesso errore
+    // gia' corretto per la metadata di collezione, rimasto qui per
+    // svista. Una pagina di dettaglio piu' rigorosa puo' rifiutare
+    // un'immagine le cui dimensioni dichiarate non corrispondono a
+    // quelle vere del file, mentre una griglia di anteprime piu'
+    // permissiva la mostra comunque — coerente con quello che si vede.
+    btn.textContent = "Reading image dimensions…";
+    const imageBytes = await fetchFromIPFS(uri, hash);
+    const { width, height } = await getImageDimensions(imageBytes);
+
+    const metadataJson = {
+      LSP4Metadata: {
+        name: label || "Registry",
+        description: "",
+        links: [],
+        icon: [{
+          width, height,
+          url: uri,
+          verification: { method: "keccak256(bytes)", data: hash },
+        }],
+        images: [],
+        assets: [],
+        attributes: [],
+      },
+    };
+
+    btn.textContent = "Uploading metadata…";
+    const metadataBytes = new TextEncoder().encode(JSON.stringify(metadataJson));
+    const metadataUri = await uploadToIPFS(metadataBytes);
+
+    btn.textContent = "Encoding…";
+    const { ERC725 } = await import("/shared/erc725.js/0.28.2/erc725.min.js");
+    const schema = [{
+      name: "LSP4Metadata",
+      key: LSP4_METADATA_KEY,
+      keyType: "Singleton",
+      valueType: "bytes",
+      valueContent: "VerifiableURI",
+    }];
+    const encoded = ERC725.encodeData(
+      [{ keyName: "LSP4Metadata", value: { json: metadataJson, url: metadataUri } }],
+      schema
+    );
+
+    btn.textContent = "Confirm from your wallet…";
+    const tx = await state.contract.setDataForTokenId(tokenId, encoded.keys[0], encoded.values[0]);
+    btn.textContent = "Transaction in progress…";
+    await tx.wait();
+
+    btn.textContent = "Published ✓";
+  } catch (e) {
+    btn.textContent = "Failed";
+    setStatus(explainRevert(e), true);
+    setTimeout(() => { btn.textContent = originalText; btn.disabled = false; }, 2500);
+    return;
+  }
+  btn.disabled = false;
+}
+
+// =======================================================================
+// FILE DA RIPINNARE SUL NODO — il nodo IPFS proprio serve solo i file che
+// ha pinnato. Quelli caricati quando gli upload passavano da Pinata oggi
+// si leggono solo tramite il fallback LUKSO (vedi fetchFromIPFS): questo
+// strumento li trova tutti e prepara i comandi `ipfs pin add` da lanciare
+// sul nodo, cosi' il fallback diventa superfluo.
+//
+// Fonti dei CID: eventi pubblici del contratto (nomi fornitori,
+// valutazioni, disclosure, immagini dei registri, metadata LSP4 di
+// collezione e dei singoli token) + allegati delle valutazioni pubbliche
+// (il loro CID e' dentro il JSON pubblico). Gli allegati delle valutazioni
+// PRIVATE sono dentro il JSON cifrato: si possono includere registro per
+// registro inserendo il codice segreto di quel registro (resta in questa
+// pagina, non viene inviato a nessuno).
+// =======================================================================
+const REPIN_SCAN_ABI = [
+  "event SupplierAdded(bytes32 indexed tokenId, uint256 indexed supplierId, bytes32 nameHash, string nameUri, bool isNamePublic)",
+  "event EvaluationAdded(bytes32 indexed tokenId, uint256 indexed supplierId, uint256 evaluationId, uint256 schemaVersion, bytes32 contentHash, string uri, bool isPublic, uint256 supersedes)",
+  "event EvaluationDisclosed(bytes32 indexed tokenId, uint256 indexed supplierId, uint256 indexed evaluationId, uint256 disclosureId, string disclosureUri, bytes32 disclosureHash)",
+  "event RegistryImageUpdated(bytes32 indexed tokenId, string uri, bytes32 hash)",
+  "event RegistryMinted(bytes32 indexed tokenId, address indexed owner, uint256 index, string label)",
+  "event DataChanged(bytes32 indexed dataKey, bytes dataValue)",
+  "event TokenIdDataChanged(bytes32 indexed tokenId, bytes32 indexed dataKey, bytes dataValue)",
+];
+const REPIN_KDF_ITERATIONS = 600000; // identico a CONFIG.KDF_ITERATIONS di index.html
+
+const repinState = {
+  cids: new Map(),            // cid -> Set di descrizioni ("supplier name", ...)
+  privateEvals: new Map(),    // tokenId -> [{ uri, supplierId, evaluationId }]
+  labels: new Map(),          // tokenId -> etichetta del registro
+};
+
+function cidFromUri(uri) {
+  const cid = String(uri ?? "").replace(/^ipfs:\/\//, "");
+  return CID_RE.test(cid) ? cid : null;
+}
+
+function addCid(uri, what) {
+  const cid = cidFromUri(uri);
+  if (!cid) return;
+  if (!repinState.cids.has(cid)) repinState.cids.set(cid, new Set());
+  repinState.cids.get(cid).add(what);
+}
+
+async function collectLsp4Metadata(dataValue, what) {
+  try {
+    const { ERC725 } = await import("/shared/erc725.js/0.28.2/erc725.min.js");
+    const schema = [{ name: "LSP4Metadata", key: LSP4_METADATA_KEY, keyType: "Singleton", valueType: "bytes", valueContent: "VerifiableURI" }];
+    const url = ERC725.decodeData([{ keyName: "LSP4Metadata", value: dataValue }], schema)[0]?.value?.url;
+    if (!url) return;
+    addCid(url, what + " (metadata JSON)");
+    const json = JSON.parse(new TextDecoder().decode(await fetchFromIPFS(url)));
+    const meta = json.LSP4Metadata || {};
+    for (const key of ["icon", "images", "backgroundImage", "assets"]) {
+      for (const item of (meta[key] || []).flat()) {
+        if (item?.url) addCid(item.url, `${what} (${key})`);
+      }
+    }
+  } catch { /* metadata illeggibile: resta almeno il CID del JSON, se decodificato */ }
+}
+
+async function scanRepinCids(status) {
+  repinState.cids.clear();
+  repinState.privateEvals.clear();
+  repinState.labels.clear();
+  const c = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, REPIN_SCAN_ABI, state.readOnlyProvider);
+  const scan = (name) => queryFilterChunked(c, c.filters[name](), CONFIG.DEPLOY_BLOCK);
+
+  status.textContent = "Reading registries…";
+  for (const ev of await scan("RegistryMinted")) {
+    repinState.labels.set(ev.args.tokenId, ev.args.label || "Unnamed registry");
+  }
+  const reg = (tokenId) => repinState.labels.get(tokenId) || tokenId.slice(0, 10) + "…";
+
+  status.textContent = "Reading suppliers…";
+  for (const ev of await scan("SupplierAdded")) {
+    addCid(ev.args.nameUri, `${reg(ev.args.tokenId)} · supplier #${ev.args.supplierId} name (${ev.args.isNamePublic ? "public" : "private"})`);
+  }
+
+  status.textContent = "Reading evaluations…";
+  const evals = await scan("EvaluationAdded");
+  let i = 0;
+  for (const ev of evals) {
+    const { tokenId, supplierId, evaluationId, uri, isPublic, contentHash } = ev.args;
+    const what = `${reg(tokenId)} · supplier #${supplierId} evaluation #${evaluationId}`;
+    addCid(uri, `${what} (${isPublic ? "public" : "private"})`);
+    if (isPublic) {
+      status.textContent = `Reading public evaluations for attachments… ${++i}/${evals.length}`;
+      try {
+        const payload = JSON.parse(new TextDecoder().decode(await fetchFromIPFS(uri, contentHash)));
+        if (payload?.document?.uri) addCid(payload.document.uri, `${what} · attachment (public)`);
+      } catch { /* JSON pubblico illeggibile: il suo CID e' comunque in lista */ }
+    } else {
+      if (!repinState.privateEvals.has(tokenId)) repinState.privateEvals.set(tokenId, []);
+      repinState.privateEvals.get(tokenId).push({ uri, supplierId, evaluationId });
+    }
+  }
+
+  status.textContent = "Reading disclosures and registry images…";
+  for (const ev of await scan("EvaluationDisclosed")) {
+    addCid(ev.args.disclosureUri, `${reg(ev.args.tokenId)} · evaluation #${ev.args.evaluationId} disclosure #${ev.args.disclosureId}`);
+  }
+  for (const ev of await scan("RegistryImageUpdated")) {
+    addCid(ev.args.uri, `${reg(ev.args.tokenId)} · registry image`);
+  }
+
+  status.textContent = "Reading collection and token metadata…";
+  for (const ev of await scan("DataChanged")) {
+    if (ev.args.dataKey === LSP4_METADATA_KEY) await collectLsp4Metadata(ev.args.dataValue, "collection metadata");
+  }
+  for (const ev of await scan("TokenIdDataChanged")) {
+    if (ev.args.dataKey === LSP4_METADATA_KEY) await collectLsp4Metadata(ev.args.dataValue, `${reg(ev.args.tokenId)} · token metadata`);
+  }
+}
+
+// Stessa derivazione di index.html (deriveKey/decryptBytes): PBKDF2 sul
+// codice segreto, sale = keccak256(tokenId + indirizzo contratto).
+async function deriveRegistryKey(pin, tokenId) {
+  const salt = ethers.getBytes(ethers.keccak256(ethers.concat([ethers.getBytes(tokenId), ethers.getBytes(CONFIG.REGISTRY_CONTRACT)])));
+  const baseKey = await crypto.subtle.importKey("raw", new TextEncoder().encode(pin), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt, iterations: REPIN_KDF_ITERATIONS, hash: "SHA-256" },
+    baseKey, { name: "AES-GCM", length: 256 }, false, ["decrypt"]
+  );
+}
+
+async function decryptJsonWithKey(bytes, key) {
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: bytes.slice(0, 12) }, key, bytes.slice(12));
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+async function includePrivateAttachments(tokenId, pin, statusEl) {
+  const list = repinState.privateEvals.get(tokenId) || [];
+  statusEl.textContent = "Deriving key…";
+  const key = await deriveRegistryKey(pin, tokenId);
+  let found = 0, done = 0;
+  for (const { uri, supplierId, evaluationId } of list) {
+    let payload;
+    try {
+      payload = await decryptJsonWithKey(await fetchFromIPFS(uri), key);
+    } catch {
+      if (done === 0) { statusEl.textContent = "Wrong code (or unreadable data) — nothing added."; return false; }
+      continue;
+    }
+    done++;
+    if (payload?.document?.uri) {
+      addCid(payload.document.uri, `${repinState.labels.get(tokenId) || tokenId.slice(0, 10) + "…"} · supplier #${supplierId} evaluation #${evaluationId} · attachment (private)`);
+      found++;
+    }
+    statusEl.textContent = `Decrypted ${done}/${list.length}…`;
+  }
+  statusEl.textContent = `Done: ${found} private attachment(s) added.`;
+  return true;
+}
+
+// Controllo di presenza su un gateway. `cache: "no-store"`: il browser non
+// deve MAI rispondere con una risposta vecchia (es. il 404 di prima del
+// pin), la domanda va sempre fatta davvero al gateway. Se la richiesta
+// leggera HEAD non va a buon fine, riprova con un GET (letti solo gli
+// header, il corpo viene scartato) prima di dichiarare il file mancante.
+// Ritorna { ok, reason } — reason e' il codice HTTP o "timeout"/"network".
+async function probeGateway(base, cid) {
+  let reason = "network";
+  for (const method of ["HEAD", "GET"]) {
+    try {
+      const res = await fetchGatewayWithRetry(`${base}/ipfs/${cid}`, { method, cache: "no-store" });
+      if (method === "GET") res.body?.cancel().catch(() => {});
+      if (res.ok) return { ok: true, reason: String(res.status) };
+      reason = "HTTP " + res.status;
+    } catch (e) {
+      reason = e?.name === "TimeoutError" ? "timeout" : "network";
+    }
+  }
+  return { ok: false, reason };
+}
+
+async function checkRepinStatus(status) {
+  const entries = [...repinState.cids.entries()];
+  const results = [];
+  let next = 0, done = 0;
+  const worker = async () => {
+    while (next < entries.length) {
+      const [cid, what] = entries[next++];
+      const node = await probeGateway(CONFIG.IPFS_GATEWAY, cid);
+      const fallback = node.ok ? null : await probeGateway(CONFIG.IPFS_FALLBACK_GATEWAY, cid);
+      results.push({
+        cid, what: [...what],
+        onNode: node.ok, nodeReason: node.reason,
+        onFallback: fallback ? fallback.ok : null, fallbackReason: fallback?.reason ?? null,
+      });
+      status.textContent = `Checking the node… ${++done}/${entries.length}`;
+    }
+  };
+  await Promise.all(Array.from({ length: 3 }, worker)); // pochi controlli in parallelo: il gateway ha un limite di richieste per IP
+  return results;
+}
+
+function renderRepinResults(results) {
+  const missing = results.filter(r => !r.onNode);
+  const recoverable = missing.filter(r => r.onFallback);
+  const lost = missing.filter(r => !r.onFallback);
+  const out = $("repin-results");
+
+  const rows = (list) => list.map(r => `
+    <div class="list-item">
+      <div class="mono" style="font-size:11px;">${r.cid}</div>
+      <div class="muted" style="font-size:12px;">${r.what.map(escapeHtml).join("<br/>")}</div>
+      <div class="muted" style="font-size:11px;">node: ${escapeHtml(r.nodeReason)}${r.fallbackReason ? ` · LUKSO gateway: ${escapeHtml(r.fallbackReason)}` : ""}</div>
+    </div>`).join("");
+
+  out.innerHTML = `
+    <p><strong>${results.length}</strong> files referenced · <strong>${results.length - missing.length}</strong> already on the node · <strong>${missing.length}</strong> to re-pin</p>
+    ${recoverable.length ? `
+      <label for="repin-commands">Commands to run on the IPFS node (${recoverable.length})</label>
+      <textarea id="repin-commands" rows="${Math.min(12, recoverable.length + 1)}" readonly class="mono" style="display:block; width:100%; white-space:pre; overflow-x:auto; font-size:12px;">${recoverable.map(r => `ipfs pin add --progress ${r.cid}`).join("\n")}</textarea>
+      <button class="btn btn-ghost" id="btn-copy-repin" style="margin-top:6px; padding:4px 10px; font-size:12px;">Copy commands</button>
+      <details style="margin-top:8px;"><summary class="muted" style="cursor:pointer; font-size:12px;">Details</summary>${rows(recoverable)}</details>
+    ` : ""}
+    ${lost.length ? `
+      <div class="warning-box" style="margin-top:12px;">
+        ${lost.length} file(s) not found on the node nor through the LUKSO gateway right now. They may still be pinned on Pinata but slow to reach, or no longer available anywhere: retry later before drawing conclusions.
+      </div>
+      <details><summary class="muted" style="cursor:pointer; font-size:12px;">Not found (${lost.length})</summary>${rows(lost)}</details>
+    ` : ""}
+    ${missing.length === 0 ? `<p class="muted">Nothing to do: every referenced file is already on the node.</p>` : ""}
+  `;
+  if ($("btn-copy-repin")) {
+    $("btn-copy-repin").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText($("repin-commands").value); $("btn-copy-repin").textContent = "Copied ✓"; }
+      catch { $("repin-commands").select(); }
+    });
+  }
+}
+
+function renderPrivateUnlockRows() {
+  const box = $("repin-private");
+  const regs = [...repinState.privateEvals.entries()];
+  if (regs.length === 0) { box.innerHTML = ""; return; }
+  box.innerHTML = `
+    <p class="muted" style="font-size:12px; margin-top:14px;">
+      Attachments of <strong>private</strong> evaluations are listed inside encrypted content. To include them,
+      enter the secret code of that registry: it is used only in this page to decrypt, then discarded.
+    </p>
+    ${regs.map(([tokenId, list], idx) => `
+      <div class="list-item">
+        <div><strong>${escapeHtml(repinState.labels.get(tokenId) || "Unnamed registry")}</strong>
+          <span class="muted" style="font-size:12px;">· ${list.length} private evaluation(s)</span></div>
+        <div class="row" style="gap:8px; margin-top:6px;">
+          <input type="password" id="repin-pin-${idx}" autocomplete="off" placeholder="Secret code of this registry" style="flex:1;" />
+          <button class="btn btn-ghost repin-unlock-btn" data-idx="${idx}" data-token-id="${tokenId}" style="padding:6px 12px; font-size:12px; white-space:nowrap;">Include</button>
+        </div>
+        <div id="repin-pin-status-${idx}" class="muted" style="font-size:12px; margin-top:4px;"></div>
+      </div>
+    `).join("")}
+  `;
+  box.querySelectorAll(".repin-unlock-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const idx = btn.dataset.idx;
+      const input = $(`repin-pin-${idx}`);
+      const st = $(`repin-pin-status-${idx}`);
+      if (!input.value) { st.textContent = "Enter the code."; return; }
+      btn.disabled = true;
+      const ok = await includePrivateAttachments(btn.dataset.tokenId, input.value, st);
+      input.value = "";
+      btn.disabled = false;
+      if (ok) {
+        const status = $("repin-status");
+        renderRepinResults(await checkRepinStatus(status));
+        status.textContent = "";
+      }
+    });
+  });
+}
+
+function wireRepinTool() {
+  $("btn-repin-scan").addEventListener("click", async () => {
+    const btn = $("btn-repin-scan");
+    const status = $("repin-status");
+    btn.disabled = true;
+    $("repin-results").innerHTML = "";
+    try {
+      await scanRepinCids(status);
+      renderRepinResults(await checkRepinStatus(status));
+      renderPrivateUnlockRows();
+      status.textContent = "";
+    } catch (e) {
+      status.textContent = "Scan failed: " + (e?.shortMessage || e?.message || "unknown error");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+// =======================================================================
+// AVVIO
+// =======================================================================
+$("btn-connect").addEventListener("click", connect);
+$("btn-logout").addEventListener("click", () => window.location.reload());
+
+window.addEventListener("scroll", () => {
+  $("btn-back-to-top").style.display = window.scrollY > 400 ? "block" : "none";
+});
+$("btn-back-to-top").addEventListener("click", () => {
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});

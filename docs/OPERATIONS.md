@@ -28,13 +28,49 @@ location /api/ {
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 }
 
+# Intestazioni di sicurezza (Content-Security-Policy ecc., audit S6)
+include /var/www/supplier-trust-registry/nginx/security-headers.conf;
+
 # Librerie e font condivisi (repo ChainIntegrate/shared-assets)
 include /var/www/shared-assets/nginx/shared-assets.conf;
 
+# Codice delle pagine: il browser ricontrolla a ogni caricamento se e'
+# cambiato (risposta vuota 304 se non lo e'), cosi' dopo un git pull non
+# resta mai un file .js vecchio accanto a un HTML nuovo.
+location ^~ /js/ {
+    include /var/www/supplier-trust-registry/nginx/security-headers.conf;
+    add_header Cache-Control "no-cache";
+}
+
 location / {
+    include /var/www/supplier-trust-registry/nginx/security-headers.conf;
+    add_header Cache-Control "no-cache";
     try_files $uri $uri/ /index.html;
 }
 ```
+
+Le `include` di `security-headers.conf` dentro le `location` servono:
+Nginx non eredita gli `add_header` del blocco `server` in una `location`
+che ne definisce di propri (qui `Cache-Control`).
+
+Verifica delle intestazioni:
+```bash
+curl -sI https://supplier-trust-registry.chainintegrate.it/ | grep -iE "content-security|cache-control|nosniff|referrer"
+curl -sI https://supplier-trust-registry.chainintegrate.it/js/app.js | grep -iE "content-security|cache-control"
+# attesi: la riga Content-Security-Policy(-Report-Only), Cache-Control: no-cache,
+# X-Content-Type-Options: nosniff, Referrer-Policy
+```
+
+**Content-Security-Policy in due fasi.**
+- *Fase 1*: `security-headers.conf` usa `Content-Security-Policy-Report-Only`.
+  Il browser non blocca nulla e scrive nella console (F12) cosa avrebbe
+  bloccato.
+- *Fase 2*: verificata la console, nel file si toglie `-Report-Only` dal
+  nome dell'intestazione, poi `git pull` e reload di Nginx.
+
+Se in futuro il sito deve collegarsi a un nuovo dominio (un altro gateway,
+un servizio esterno), va aggiunto a `connect-src` nel file, altrimenti il
+browser blocca la richiesta.
 
 Dopo ogni modifica: `sudo nginx -t && sudo systemctl reload nginx` (il solo
 `nginx -t` verifica la sintassi ma non applica nulla).

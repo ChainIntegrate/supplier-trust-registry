@@ -123,7 +123,35 @@ non confermata
   alla scadenza.
 - ✅ **S6 (parte 1)** — nessuna libreria da CDN: ethers ed erc725.js da
   `shared-assets`, versioni fissate e impronte in `SHA256SUMS`.
-- ⏳ **S6 (parte 2)** — Content-Security-Policy da aggiungere in Nginx.
+- ⏳ **S6 (parte 2)** — Content-Security-Policy. Fase 1 (osservazione) in
+  corso. Preparazione:
+  - tutto il codice delle pagine è stato spostato dall'HTML a file in
+    `frontend/js/`, senza cambiarne la logica (ricomponendo i file si
+    ottiene l'HTML originale identico);
+  - i tre `onclick="this.select()"` sono stati sostituiti da un gestore
+    unico.
+
+  Così la policy in `nginx/security-headers.conf` può ammettere solo il
+  codice servito dal sito (`script-src 'self'`), senza eccezioni per gli
+  script inline:
+  - connessioni solo verso il sito e i due gateway IPFS;
+  - immagini solo dal sito o `blob:`;
+  - nessun plugin, form o `<base>`;
+  - pagina non incorporabile in altri siti.
+
+  Gli stili inline restano ammessi: sono circa 150 e iniettare stili è
+  molto meno pericoloso che iniettare codice.
+
+  Verificato con i test end-to-end dei flussi principali (correzione,
+  condivisione riservata, pagina del destinatario, come funziona, admin)
+  con la policy **applicata**: nessuna violazione. Controprova: script
+  inline, script esterno, `onerror`, link `javascript:` e invio di dati a
+  domini esterni vengono bloccati.
+
+  Fase 1: intestazione `Content-Security-Policy-Report-Only`. Il browser
+  segnala in console senza bloccare; si verificano estensione UP, apertura
+  dei PDF e pagina admin con i dati reali. Fase 2: si toglie
+  `-Report-Only`.
 - 📌 **S7** — vincoli applicati solo lato interfaccia perché il contratto V3
   non li impone (già noto per `addEvaluation`); da riprendere solo in
   un'eventuale V4.
