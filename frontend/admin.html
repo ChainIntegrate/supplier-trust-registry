@@ -432,6 +432,20 @@ async function renderDashboard() {
       <div id="registry-image-list"></div>
       <button class="btn btn-ghost" id="btn-refresh-registry-list" style="margin-top:10px;">Refresh list</button>
     </div>
+
+    <div class="card">
+      <h2>Files to re-pin on the IPFS node</h2>
+      <p class="muted">
+        The node only serves files it has pinned. Files uploaded when uploads still went through Pinata
+        are read through the LUKSO gateway fallback. This scans every file referenced by the contract,
+        checks which ones are missing from the node and prepares the <span class="mono" style="display:inline;">ipfs pin add</span>
+        commands to run on the node.
+      </p>
+      <button class="btn" id="btn-repin-scan">Scan</button>
+      <div id="repin-status" class="muted" style="margin-top:8px;"></div>
+      <div id="repin-results" style="margin-top:10px;"></div>
+      <div id="repin-private"></div>
+    </div>
   `;
 
   await renderMembershipList();
@@ -441,6 +455,7 @@ async function renderDashboard() {
   await renderCurrentMetadataStatus();
   await renderRegistryImageList();
   $("btn-refresh-registry-list").addEventListener("click", renderRegistryImageList);
+  wireRepinTool();
 }
 
 // =======================================================================
@@ -925,6 +940,282 @@ async function publishRegistryImageAsTokenImage(tokenId, label, btn) {
     return;
   }
   btn.disabled = false;
+}
+
+// =======================================================================
+// FILE DA RIPINNARE SUL NODO — il nodo IPFS proprio serve solo i file che
+// ha pinnato. Quelli caricati quando gli upload passavano da Pinata oggi
+// si leggono solo tramite il fallback LUKSO (vedi fetchFromIPFS): questo
+// strumento li trova tutti e prepara i comandi `ipfs pin add` da lanciare
+// sul nodo, cosi' il fallback diventa superfluo.
+//
+// Fonti dei CID: eventi pubblici del contratto (nomi fornitori,
+// valutazioni, disclosure, immagini dei registri, metadata LSP4 di
+// collezione e dei singoli token) + allegati delle valutazioni pubbliche
+// (il loro CID e' dentro il JSON pubblico). Gli allegati delle valutazioni
+// PRIVATE sono dentro il JSON cifrato: si possono includere registro per
+// registro inserendo il codice segreto di quel registro (resta in questa
+// pagina, non viene inviato a nessuno).
+// =======================================================================
+const REPIN_SCAN_ABI = [
+  "event SupplierAdded(bytes32 indexed tokenId, uint256 indexed supplierId, bytes32 nameHash, string nameUri, bool isNamePublic)",
+  "event EvaluationAdded(bytes32 indexed tokenId, uint256 indexed supplierId, uint256 evaluationId, uint256 schemaVersion, bytes32 contentHash, string uri, bool isPublic, uint256 supersedes)",
+  "event EvaluationDisclosed(bytes32 indexed tokenId, uint256 indexed supplierId, uint256 indexed evaluationId, uint256 disclosureId, string disclosureUri, bytes32 disclosureHash)",
+  "event RegistryImageUpdated(bytes32 indexed tokenId, string uri, bytes32 hash)",
+  "event RegistryMinted(bytes32 indexed tokenId, address indexed owner, uint256 index, string label)",
+  "event DataChanged(bytes32 indexed dataKey, bytes dataValue)",
+  "event TokenIdDataChanged(bytes32 indexed tokenId, bytes32 indexed dataKey, bytes dataValue)",
+];
+const REPIN_KDF_ITERATIONS = 600000; // identico a CONFIG.KDF_ITERATIONS di index.html
+
+const repinState = {
+  cids: new Map(),            // cid -> Set di descrizioni ("supplier name", ...)
+  privateEvals: new Map(),    // tokenId -> [{ uri, supplierId, evaluationId }]
+  labels: new Map(),          // tokenId -> etichetta del registro
+};
+
+function cidFromUri(uri) {
+  const cid = String(uri ?? "").replace(/^ipfs:\/\//, "");
+  return CID_RE.test(cid) ? cid : null;
+}
+
+function addCid(uri, what) {
+  const cid = cidFromUri(uri);
+  if (!cid) return;
+  if (!repinState.cids.has(cid)) repinState.cids.set(cid, new Set());
+  repinState.cids.get(cid).add(what);
+}
+
+async function collectLsp4Metadata(dataValue, what) {
+  try {
+    const { ERC725 } = await import("/shared/erc725.js/0.28.2/erc725.min.js");
+    const schema = [{ name: "LSP4Metadata", key: LSP4_METADATA_KEY, keyType: "Singleton", valueType: "bytes", valueContent: "VerifiableURI" }];
+    const url = ERC725.decodeData([{ keyName: "LSP4Metadata", value: dataValue }], schema)[0]?.value?.url;
+    if (!url) return;
+    addCid(url, what + " (metadata JSON)");
+    const json = JSON.parse(new TextDecoder().decode(await fetchFromIPFS(url)));
+    const meta = json.LSP4Metadata || {};
+    for (const key of ["icon", "images", "backgroundImage", "assets"]) {
+      for (const item of (meta[key] || []).flat()) {
+        if (item?.url) addCid(item.url, `${what} (${key})`);
+      }
+    }
+  } catch { /* metadata illeggibile: resta almeno il CID del JSON, se decodificato */ }
+}
+
+async function scanRepinCids(status) {
+  repinState.cids.clear();
+  repinState.privateEvals.clear();
+  repinState.labels.clear();
+  const c = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, REPIN_SCAN_ABI, state.readOnlyProvider);
+  const scan = (name) => queryFilterChunked(c, c.filters[name](), CONFIG.DEPLOY_BLOCK);
+
+  status.textContent = "Reading registries…";
+  for (const ev of await scan("RegistryMinted")) {
+    repinState.labels.set(ev.args.tokenId, ev.args.label || "Unnamed registry");
+  }
+  const reg = (tokenId) => repinState.labels.get(tokenId) || tokenId.slice(0, 10) + "…";
+
+  status.textContent = "Reading suppliers…";
+  for (const ev of await scan("SupplierAdded")) {
+    addCid(ev.args.nameUri, `${reg(ev.args.tokenId)} · supplier #${ev.args.supplierId} name (${ev.args.isNamePublic ? "public" : "private"})`);
+  }
+
+  status.textContent = "Reading evaluations…";
+  const evals = await scan("EvaluationAdded");
+  let i = 0;
+  for (const ev of evals) {
+    const { tokenId, supplierId, evaluationId, uri, isPublic, contentHash } = ev.args;
+    const what = `${reg(tokenId)} · supplier #${supplierId} evaluation #${evaluationId}`;
+    addCid(uri, `${what} (${isPublic ? "public" : "private"})`);
+    if (isPublic) {
+      status.textContent = `Reading public evaluations for attachments… ${++i}/${evals.length}`;
+      try {
+        const payload = JSON.parse(new TextDecoder().decode(await fetchFromIPFS(uri, contentHash)));
+        if (payload?.document?.uri) addCid(payload.document.uri, `${what} · attachment (public)`);
+      } catch { /* JSON pubblico illeggibile: il suo CID e' comunque in lista */ }
+    } else {
+      if (!repinState.privateEvals.has(tokenId)) repinState.privateEvals.set(tokenId, []);
+      repinState.privateEvals.get(tokenId).push({ uri, supplierId, evaluationId });
+    }
+  }
+
+  status.textContent = "Reading disclosures and registry images…";
+  for (const ev of await scan("EvaluationDisclosed")) {
+    addCid(ev.args.disclosureUri, `${reg(ev.args.tokenId)} · evaluation #${ev.args.evaluationId} disclosure #${ev.args.disclosureId}`);
+  }
+  for (const ev of await scan("RegistryImageUpdated")) {
+    addCid(ev.args.uri, `${reg(ev.args.tokenId)} · registry image`);
+  }
+
+  status.textContent = "Reading collection and token metadata…";
+  for (const ev of await scan("DataChanged")) {
+    if (ev.args.dataKey === LSP4_METADATA_KEY) await collectLsp4Metadata(ev.args.dataValue, "collection metadata");
+  }
+  for (const ev of await scan("TokenIdDataChanged")) {
+    if (ev.args.dataKey === LSP4_METADATA_KEY) await collectLsp4Metadata(ev.args.dataValue, `${reg(ev.args.tokenId)} · token metadata`);
+  }
+}
+
+// Stessa derivazione di index.html (deriveKey/decryptBytes): PBKDF2 sul
+// codice segreto, sale = keccak256(tokenId + indirizzo contratto).
+async function deriveRegistryKey(pin, tokenId) {
+  const salt = ethers.getBytes(ethers.keccak256(ethers.concat([ethers.getBytes(tokenId), ethers.getBytes(CONFIG.REGISTRY_CONTRACT)])));
+  const baseKey = await crypto.subtle.importKey("raw", new TextEncoder().encode(pin), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt, iterations: REPIN_KDF_ITERATIONS, hash: "SHA-256" },
+    baseKey, { name: "AES-GCM", length: 256 }, false, ["decrypt"]
+  );
+}
+
+async function decryptJsonWithKey(bytes, key) {
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: bytes.slice(0, 12) }, key, bytes.slice(12));
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+async function includePrivateAttachments(tokenId, pin, statusEl) {
+  const list = repinState.privateEvals.get(tokenId) || [];
+  statusEl.textContent = "Deriving key…";
+  const key = await deriveRegistryKey(pin, tokenId);
+  let found = 0, done = 0;
+  for (const { uri, supplierId, evaluationId } of list) {
+    let payload;
+    try {
+      payload = await decryptJsonWithKey(await fetchFromIPFS(uri), key);
+    } catch {
+      if (done === 0) { statusEl.textContent = "Wrong code (or unreadable data) — nothing added."; return false; }
+      continue;
+    }
+    done++;
+    if (payload?.document?.uri) {
+      addCid(payload.document.uri, `${repinState.labels.get(tokenId) || tokenId.slice(0, 10) + "…"} · supplier #${supplierId} evaluation #${evaluationId} · attachment (private)`);
+      found++;
+    }
+    statusEl.textContent = `Decrypted ${done}/${list.length}…`;
+  }
+  statusEl.textContent = `Done: ${found} private attachment(s) added.`;
+  return true;
+}
+
+async function headOk(base, cid) {
+  try {
+    const res = await fetch(`${base}/ipfs/${cid}`, { method: "HEAD", signal: AbortSignal.timeout(IPFS_TIMEOUT_MS) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function checkRepinStatus(status) {
+  const entries = [...repinState.cids.entries()];
+  const results = [];
+  let next = 0, done = 0;
+  const worker = async () => {
+    while (next < entries.length) {
+      const [cid, what] = entries[next++];
+      const onNode = await headOk(CONFIG.IPFS_GATEWAY, cid);
+      const onFallback = onNode ? null : await headOk(CONFIG.IPFS_FALLBACK_GATEWAY, cid);
+      results.push({ cid, what: [...what], onNode, onFallback });
+      status.textContent = `Checking the node… ${++done}/${entries.length}`;
+    }
+  };
+  await Promise.all(Array.from({ length: 6 }, worker));
+  return results;
+}
+
+function renderRepinResults(results) {
+  const missing = results.filter(r => !r.onNode);
+  const recoverable = missing.filter(r => r.onFallback);
+  const lost = missing.filter(r => !r.onFallback);
+  const out = $("repin-results");
+
+  const rows = (list) => list.map(r => `
+    <div class="list-item">
+      <div class="mono" style="font-size:11px;">${r.cid}</div>
+      <div class="muted" style="font-size:12px;">${r.what.map(escapeHtml).join("<br/>")}</div>
+    </div>`).join("");
+
+  out.innerHTML = `
+    <p><strong>${results.length}</strong> files referenced · <strong>${results.length - missing.length}</strong> already on the node · <strong>${missing.length}</strong> to re-pin</p>
+    ${recoverable.length ? `
+      <label for="repin-commands">Commands to run on the IPFS node (${recoverable.length})</label>
+      <textarea id="repin-commands" rows="${Math.min(12, recoverable.length + 1)}" readonly class="mono" style="display:block; width:100%; white-space:pre; overflow-x:auto; font-size:12px;">${recoverable.map(r => `ipfs pin add --progress ${r.cid}`).join("\n")}</textarea>
+      <button class="btn btn-ghost" id="btn-copy-repin" style="margin-top:6px; padding:4px 10px; font-size:12px;">Copy commands</button>
+      <details style="margin-top:8px;"><summary class="muted" style="cursor:pointer; font-size:12px;">Details</summary>${rows(recoverable)}</details>
+    ` : ""}
+    ${lost.length ? `
+      <div class="warning-box" style="margin-top:12px;">
+        ${lost.length} file(s) not found on the node nor through the LUKSO gateway right now. They may still be pinned on Pinata but slow to reach, or no longer available anywhere: retry later before drawing conclusions.
+      </div>
+      <details><summary class="muted" style="cursor:pointer; font-size:12px;">Not found (${lost.length})</summary>${rows(lost)}</details>
+    ` : ""}
+    ${missing.length === 0 ? `<p class="muted">Nothing to do: every referenced file is already on the node.</p>` : ""}
+  `;
+  if ($("btn-copy-repin")) {
+    $("btn-copy-repin").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText($("repin-commands").value); $("btn-copy-repin").textContent = "Copied ✓"; }
+      catch { $("repin-commands").select(); }
+    });
+  }
+}
+
+function renderPrivateUnlockRows() {
+  const box = $("repin-private");
+  const regs = [...repinState.privateEvals.entries()];
+  if (regs.length === 0) { box.innerHTML = ""; return; }
+  box.innerHTML = `
+    <p class="muted" style="font-size:12px; margin-top:14px;">
+      Attachments of <strong>private</strong> evaluations are listed inside encrypted content. To include them,
+      enter the secret code of that registry: it is used only in this page to decrypt, then discarded.
+    </p>
+    ${regs.map(([tokenId, list], idx) => `
+      <div class="list-item">
+        <div><strong>${escapeHtml(repinState.labels.get(tokenId) || "Unnamed registry")}</strong>
+          <span class="muted" style="font-size:12px;">· ${list.length} private evaluation(s)</span></div>
+        <div class="row" style="gap:8px; margin-top:6px;">
+          <input type="password" id="repin-pin-${idx}" autocomplete="off" placeholder="Secret code of this registry" style="flex:1;" />
+          <button class="btn btn-ghost repin-unlock-btn" data-idx="${idx}" data-token-id="${tokenId}" style="padding:6px 12px; font-size:12px; white-space:nowrap;">Include</button>
+        </div>
+        <div id="repin-pin-status-${idx}" class="muted" style="font-size:12px; margin-top:4px;"></div>
+      </div>
+    `).join("")}
+  `;
+  box.querySelectorAll(".repin-unlock-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const idx = btn.dataset.idx;
+      const input = $(`repin-pin-${idx}`);
+      const st = $(`repin-pin-status-${idx}`);
+      if (!input.value) { st.textContent = "Enter the code."; return; }
+      btn.disabled = true;
+      const ok = await includePrivateAttachments(btn.dataset.tokenId, input.value, st);
+      input.value = "";
+      btn.disabled = false;
+      if (ok) {
+        const status = $("repin-status");
+        renderRepinResults(await checkRepinStatus(status));
+        status.textContent = "";
+      }
+    });
+  });
+}
+
+function wireRepinTool() {
+  $("btn-repin-scan").addEventListener("click", async () => {
+    const btn = $("btn-repin-scan");
+    const status = $("repin-status");
+    btn.disabled = true;
+    $("repin-results").innerHTML = "";
+    try {
+      await scanRepinCids(status);
+      renderRepinResults(await checkRepinStatus(status));
+      renderPrivateUnlockRows();
+      status.textContent = "";
+    } catch (e) {
+      status.textContent = "Scan failed: " + (e?.shortMessage || e?.message || "unknown error");
+    } finally {
+      btn.disabled = false;
+    }
+  });
 }
 
 // =======================================================================
