@@ -254,7 +254,7 @@ Legenda: ✅ corretto · ⏳ aperto · 📌 limite noto, solo documentato
 | | U11 Prestazioni: lettura unica per registro e cache nel browser | ✅ |
 | | U14 Consultazione senza estensione, link da condividere | ⏳ |
 | | U12–U13 Correzioni tracciate e condivisione riservata nell'interfaccia | ⏳ |
-| | U17 Testi della guida | ✅ |
+| | U17 Testi della guida · U18 Scrittura riservata al proprietario | ✅ |
 | Documentazione | D1 Configurazione di esempio del backend | ✅ |
 
 ---

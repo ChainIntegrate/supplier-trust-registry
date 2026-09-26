@@ -197,6 +197,13 @@ non confermata
 - ➖ **U16** — Non confermato: il tag in `admin.html` è chiuso
   correttamente. La segnalazione nasceva da un output troncato durante la
   revisione.
+- ✅ **U18** — Il pulsante "+ Valutazione" era visibile anche ai visitatori
+  (segnalato in produzione dal titolare): compilato il modale, il
+  salvataggio veniva rifiutato dal server alla firma (la sessione di
+  upload è a nome del proprietario) — nessun dato scritto, nessun rischio,
+  ma un'esperienza sbagliata. Ora è visibile solo al proprietario, come
+  "+ Nuovo fornitore" e "Cambia immagine": il codice del registro serve a
+  leggere, per scrivere bisogna essere il proprietario.
 - ✅ **U17** — "Come funziona" parlava di "media per criterio": il grafico
   mostra la media di ciascuna valutazione. Testo corretto.
 - ✅ **D1** — `backend/.env.example` allineato: via Pinata, porta 3011,
