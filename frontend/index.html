@@ -301,6 +301,7 @@
   <div class="modal">
     <h2 id="evaluation-modal-title">Nuova valutazione</h2>
     <div id="evaluation-supplier-name" class="muted" style="margin-top:-8px; margin-bottom:14px; font-size:14px; font-weight:600;"></div>
+    <div id="evaluation-correction-info" class="warning-box" style="display:none; margin-top:0; margin-bottom:12px; background:var(--powder); border-color:var(--powder-line); color:var(--ink);"></div>
 
     <div id="evaluation-edit-view">
       <div id="evaluation-criteria-fields"></div>
@@ -329,6 +330,7 @@
         </div>
         <input type="checkbox" id="evaluation-public-toggle" style="width:auto;" />
       </div>
+      <div class="warning-box" id="evaluation-correction-public-warning" style="display:none;"></div>
       <div class="warning-box" id="evaluation-public-warning" style="display:none;">
         Una volta resa pubblica, questa valutazione è leggibile da chiunque, per sempre.
         Anche disattivando di nuovo l'interruttore in futuro, il contenuto già pubblicato
@@ -758,7 +760,15 @@ const I18N = {
 
     noEvaluationsYet: "Nessuna valutazione ancora.",
     loadingEllipsis: "Caricamento…",
-    correctsHash: " (corregge #{id})",
+    correctsHash: " · corregge la n. {id}",
+    correctBtn: "Correggi",
+    correctionTitle: "Correggi la valutazione n. {id}",
+    correctionInfo: "La nuova valutazione sostituirà la n. {id}. L'originale resta nello storico, visibile ma non più conteggiata in grafici e medie.",
+    correctionSummary: "Sostituisce la valutazione n. {id}",
+    supersededByLabel: "Sostituita dalla valutazione n. {id}",
+    correctionPublicWarning: "La valutazione originale n. {id} è pubblica e resta pubblica per sempre: la correzione privata non la nasconde.",
+    attachmentReused: "allegato della valutazione originale",
+    attachmentNotCarried: "L'allegato della valutazione originale ({name}) non viene riportato perché è cambiata la scelta pubblico/privato: se serve, caricalo di nuovo.",
     publicBadge: "Pubblica",
     privateBadge: "Privata",
     registeredOn: "Registrata il {date}",
@@ -926,7 +936,15 @@ const I18N = {
 
     noEvaluationsYet: "No evaluations yet.",
     loadingEllipsis: "Loading…",
-    correctsHash: " (corrects #{id})",
+    correctsHash: " · corrects no. {id}",
+    correctBtn: "Correct",
+    correctionTitle: "Correct evaluation no. {id}",
+    correctionInfo: "The new evaluation will replace no. {id}. The original stays in the history, visible but no longer counted in charts and averages.",
+    correctionSummary: "Replaces evaluation no. {id}",
+    supersededByLabel: "Replaced by evaluation no. {id}",
+    correctionPublicWarning: "The original evaluation no. {id} is public and stays public forever: a private correction does not hide it.",
+    attachmentReused: "attachment of the original evaluation",
+    attachmentNotCarried: "The original attachment ({name}) is not carried over because the public/private choice changed: upload it again if needed.",
     publicBadge: "Public",
     privateBadge: "Private",
     registeredOn: "Registered on {date}",
@@ -2141,12 +2159,25 @@ async function renderEvaluationsForSupplier(supplierId) {
   }));
 
   resolved.sort((a, b) => b.sortTimeMs - a.sortTimeMs); // piu' recenti (per data di riferimento) prima
-  renderSupplierChart(supplierId, resolved);
+
+  // Correzioni tracciate (audit U12): una valutazione che ne "sostituisce"
+  // un'altra la rende non piu' valida. La sostituita resta nello storico
+  // (visibile, attenuata), ma non conta piu' in grafici e medie.
+  const supersededBy = new Map();
+  for (const r of resolved) {
+    if (r.supersedes > 0n) {
+      const prev = supersededBy.get(r.supersedes);
+      if (prev === undefined || r.evaluationId > prev) supersededBy.set(r.supersedes, r.evaluationId);
+    }
+  }
+  for (const r of resolved) r.supersededBy = supersededBy.get(r.evaluationId) ?? null;
+  renderSupplierChart(supplierId, resolved.filter(r => !r.supersededBy));
 
   container.innerHTML = resolved.map(r => `
-    <div style="padding:8px 0; border-top:1px solid var(--powder-line);">
+    <div style="padding:8px 0; border-top:1px solid var(--powder-line);${r.supersededBy ? " opacity:0.55;" : ""}">
+      ${r.supersededBy ? `<div class="muted" style="font-size:12px; font-weight:600; margin-bottom:2px;">${t("supersededByLabel", { id: r.supersededBy })}</div>` : ""}
       <div class="row-between">
-        <span class="muted" style="font-size:12px; font-weight:600;">${t("evaluationNumber", { id: r.evaluationId })}${r.supersedes > 0n ? t("correctsHash", { id: r.supersedes }) : ""}</span>
+        <span class="muted" style="font-size:12px; font-weight:600;${r.supersededBy ? " text-decoration:line-through;" : ""}">${t("evaluationNumber", { id: r.evaluationId })}${r.supersedes > 0n ? t("correctsHash", { id: r.supersedes }) : ""}</span>
         <span class="badge ${r.isPublic ? "badge-public" : "badge-private"}">${r.isPublic ? t("publicBadge") : t("privateBadge")}</span>
       </div>
       <div class="muted" style="font-size:12px; margin-top:2px;">
@@ -2207,6 +2238,17 @@ function renderEvaluationDetail(supplierId, r) {
     ${payload.note ? `<div class="muted" style="margin-top:4px; font-size:13px;">${escapeHtml(payload.note)}</div>` : ""}
     ${payload.document ? `<button class="btn btn-ghost" id="doc-btn-${supplierId}-${r.evaluationId}" style="margin-top:6px; padding:4px 10px; font-size:12px;">📎 ${escapeHtml(payload.document.name)}</button>` : ""}
   `;
+
+  // "Correggi" (audit U12): solo il proprietario, solo sulle valutazioni
+  // ancora valide (niente rami paralleli di correzioni).
+  if (state.isOwner && !state.isRevoked && !r.supersededBy) {
+    const fix = document.createElement("button");
+    fix.className = "btn btn-ghost";
+    fix.style.cssText = "margin-top:6px; margin-left:6px; padding:4px 10px; font-size:12px;";
+    fix.textContent = t("correctBtn");
+    fix.addEventListener("click", () => openEvaluationModal(supplierId, r));
+    el.appendChild(fix);
+  }
 
   if (payload.document) {
     $(`doc-btn-${supplierId}-${r.evaluationId}`).addEventListener("click", async (e) => {
@@ -2423,10 +2465,12 @@ let currentSupplierName = "";
 // bloccata, semplicemente non si mostra nulla (nessun errore).
 async function fetchLatestCriteriaValues(supplierId) {
   const events = (await registryEvents(state.tokenId)).evaluationsOf(supplierId);
+  const superseded = new Set(events.map(ev => ev.args.supersedes).filter(id => id > 0n));
   let best = null;
   let bestTime = -Infinity;
 
   for (const ev of events) {
+    if (superseded.has(ev.args.evaluationId)) continue; // sostituita da una correzione (audit U12)
     const { isPublic, uri, contentHash } = ev.args;
     if (!isPublic && !state.cryptoKey) continue;
     try {
@@ -2440,7 +2484,9 @@ async function fetchLatestCriteriaValues(supplierId) {
   return best;
 }
 
-async function openEvaluationModal(supplierId) {
+let currentCorrection = null; // valutazione che si sta correggendo (audit U12), null = nuova
+
+async function openEvaluationModal(supplierId, correctionOf = null) {
   if (!state.isOwner) return; // difensivo (audit U18): solo il proprietario puo' scrivere
   // Difensivo: il contratto NON impedisce addEvaluation a tier zero, quindi
   // il blocco e' solo qui. Ricontrolliamo di persona (non ci fidiamo solo
@@ -2496,6 +2542,30 @@ async function openEvaluationModal(supplierId) {
   $("evaluation-status").textContent = "";
   pendingEvaluationPayload = null;
 
+  // Correzione: modale precompilato con i valori della valutazione originale.
+  currentCorrection = correctionOf && correctionOf.payload ? {
+    id: correctionOf.evaluationId,
+    isPublic: correctionOf.isPublic,
+    document: correctionOf.payload.document || null,
+  } : null;
+  $("evaluation-modal-title").textContent = currentCorrection
+    ? t("correctionTitle", { id: currentCorrection.id })
+    : t("newEvaluationTitle");
+  $("evaluation-correction-info").style.display = currentCorrection ? "block" : "none";
+  $("evaluation-correction-info").textContent = currentCorrection ? t("correctionInfo", { id: currentCorrection.id }) : "";
+  $("evaluation-correction-public-warning").style.display = "none";
+  if (currentCorrection) {
+    const original = correctionOf.payload;
+    currentParamNames.forEach((name, i) => {
+      const v = original.criteri ? original.criteri[name] : undefined;
+      if (typeof v === "number" && Number.isFinite(v)) $(`crit-${i}`).value = String(v);
+    });
+    if (typeof original.note === "string") $("evaluation-note").value = original.note;
+    if (typeof original.data === "string" && /^\d{4}-\d{2}-\d{2}$/.test(original.data)) $("evaluation-date").value = original.data;
+    $("evaluation-public-toggle").checked = currentCorrection.isPublic;
+    updateVisibilityWarnings();
+  }
+
   // Allegato documentale: solo Gold. Riuso canDiscloseSelectively come
   // segnale "sei Gold" invece di introdurre un terzo concetto — e' lo
   // stesso flag gia' usato per la disclosure selettiva.
@@ -2510,9 +2580,15 @@ $("evaluation-cancel").addEventListener("click", () => {
   $("evaluation-modal").classList.remove("open");
   backToEvaluationEdit();
 });
-$("evaluation-public-toggle").addEventListener("change", (e) => {
-  $("evaluation-public-warning").style.display = e.target.checked ? "block" : "none";
-});
+function updateVisibilityWarnings() {
+  const isPublic = $("evaluation-public-toggle").checked;
+  $("evaluation-public-warning").style.display = isPublic ? "block" : "none";
+  // Correzione privata di un originale pubblico: l'originale NON sparisce
+  const warn = currentCorrection && currentCorrection.isPublic && !isPublic;
+  $("evaluation-correction-public-warning").style.display = warn ? "block" : "none";
+  $("evaluation-correction-public-warning").textContent = warn ? t("correctionPublicWarning", { id: currentCorrection.id }) : "";
+}
+$("evaluation-public-toggle").addEventListener("change", updateVisibilityWarnings);
 $("evaluation-review-btn").addEventListener("click", showEvaluationReview);
 $("evaluation-back-to-edit").addEventListener("click", backToEvaluationEdit);
 $("evaluation-confirm").addEventListener("click", confirmEvaluation);
@@ -2562,6 +2638,15 @@ function showEvaluationReview() {
 
   const fileInput = $("evaluation-document");
   const hasDocument = fileInput.files && fileInput.files[0];
+  // Allegato della valutazione originale: riusato se la scelta pubblico/
+  // privato non cambia e non ne e' stato caricato uno nuovo; altrimenti non
+  // riportabile (un file cifrato non e' leggibile in una valutazione
+  // pubblica, e viceversa).
+  const reusedDocument = currentCorrection && !hasDocument && currentCorrection.document && currentCorrection.isPublic === isPublic
+    ? currentCorrection.document : null;
+  const droppedDocument = currentCorrection && !hasDocument && currentCorrection.document && !reusedDocument
+    ? currentCorrection.document : null;
+  if (reusedDocument) pendingEvaluationPayload.document = reusedDocument;
   const criteriRows = Object.entries(criteri).map(([k, v]) =>
     `<div class="row-between" style="font-size:14px; padding:4px 0;"><span class="muted">${escapeHtml(k)}</span><strong>${v}</strong></div>`
   ).join("");
@@ -2574,11 +2659,15 @@ function showEvaluationReview() {
       <div class="muted" style="font-size:13px;">${t("referredTo", { date: escapeHtml(formatDate(evaluationDate)) })}</div>
       ${note ? `<div style="margin-top:6px; font-size:13px;">${escapeHtml(note)}</div>` : ""}
       ${hasDocument ? `<div class="muted" style="margin-top:6px; font-size:13px;">📎 ${escapeHtml(fileInput.files[0].name)}</div>` : ""}
+      ${reusedDocument ? `<div class="muted" style="margin-top:6px; font-size:13px;">📎 ${escapeHtml(reusedDocument.name)} · ${t("attachmentReused")}</div>` : ""}
+      ${currentCorrection ? `<div class="muted" style="margin-top:6px; font-size:13px; font-weight:600;">${t("correctionSummary", { id: currentCorrection.id })}</div>` : ""}
       <div style="margin-top:10px;">
         <span class="badge ${isPublic ? "badge-public" : "badge-private"}">${isPublic ? t("publicBadge") : t("privateBadge")}</span>
       </div>
     </div>
     ${isPublic ? `<div class="warning-box">${t("makePublicWarning")}</div>` : ""}
+    ${droppedDocument ? `<div class="warning-box">${t("attachmentNotCarried", { name: escapeHtml(droppedDocument.name) })}</div>` : ""}
+    ${currentCorrection && currentCorrection.isPublic && !isPublic ? `<div class="warning-box">${t("correctionPublicWarning", { id: currentCorrection.id })}</div>` : ""}
   `;
 
   $("evaluation-status").textContent = "";
@@ -2637,7 +2726,8 @@ async function confirmEvaluation() {
     status.textContent = t("confirmFromWallet");
     btn.textContent = t("confirmFromWallet");
     const tx = await state.contract.addEvaluation(
-      state.tokenId, currentSupplierId, schemaVersion, contentHash, uri, isPublic, 0
+      state.tokenId, currentSupplierId, schemaVersion, contentHash, uri, isPublic,
+      currentCorrection ? BigInt(currentCorrection.id) : 0n // correzione tracciata (audit U12)
     );
     btn.textContent = t("txInProgress");
     status.textContent = t("txPendingConfirmation");
@@ -2650,6 +2740,7 @@ async function confirmEvaluation() {
     $("evaluation-public-warning").style.display = "none";
     $("evaluation-document").value = "";
     pendingEvaluationPayload = null;
+    currentCorrection = null;
     backToEvaluationEdit();
     await renderEvaluationsForSupplier(currentSupplierId);
   } catch (e) {

@@ -30,6 +30,7 @@ prodotti forniti dall'esterno).
 |---|---|
 | **Criteri personalizzati** | Ogni registro definisce i propri criteri (es. Puntualità, Qualità, Documentazione) e la propria scala numerica; i criteri sono versionati, lo storico resta confrontabile |
 | **Storico non alterabile** | Nessuna voce può essere modificata o cancellata dopo il salvataggio, nemmeno da ChainIntegrate |
+| **Correzioni tracciate** | Una valutazione sbagliata si corregge con una nuova che la sostituisce: l'originale resta visibile nello storico, ma non conta più in grafici e medie |
 | **Data di riferimento** | Ogni valutazione ha la data a cui si riferisce, non solo quella di inserimento: si possono importare storici |
 | **Pubblico o privato, voce per voce** | Nome del fornitore e singola valutazione, ciascuno pubblico o cifrato, indipendentemente |
 | **Grafici** | Andamento di ogni criterio nel tempo e punteggio medio di ogni valutazione |
@@ -39,9 +40,8 @@ prodotti forniti dall'esterno).
 | **Link condivisibile** | Ogni registro ha un link diretto: chi lo apre ne consulta i contenuti pubblici anche senza estensione e senza accedere |
 | **Interfaccia bilingue** | Italiano e inglese, secondo la lingua del browser |
 
-In arrivo nell'interfaccia (già supportati dal contratto): correzioni
-tracciate di una valutazione e **condivisione riservata** di una singola
-valutazione con un destinatario esterno (Gold).
+In arrivo nell'interfaccia (già supportata dal contratto): **condivisione
+riservata** di una singola valutazione con un destinatario esterno (Gold).
 
 ## Piani
 
@@ -254,7 +254,8 @@ Legenda: ✅ corretto · ⏳ aperto · 📌 limite noto, solo documentato
 | | U4–U9, U15 Criteri, date, punteggi, grafici, visitatori | ✅ |
 | | U11 Prestazioni: lettura unica per registro e cache nel browser | ✅ |
 | | U14 Consultazione senza estensione, link da condividere | ✅ |
-| | U12–U13 Correzioni tracciate e condivisione riservata nell'interfaccia | ⏳ |
+| | U12 Correzioni tracciate delle valutazioni | ✅ |
+| | U13 Condivisione riservata nell'interfaccia (Gold) | ⏳ |
 | | U17 Testi della guida · U18 Scrittura riservata al proprietario | ✅ |
 | Documentazione | D1 Configurazione di esempio del backend | ✅ |
 
