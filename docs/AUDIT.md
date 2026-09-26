@@ -35,12 +35,13 @@ deployato o dato già scritto on-chain), solo documentato
   l'hash non è più indovinabile, resta verificabile da chi decifra e la
   lettura dei dati vecchi (senza `salt`) è invariata. Rimossa anche la
   visualizzazione di `nameHash` nell'interfaccia.
-- 📌 **P1-bis — Dati privati scritti prima della correzione.** Restano con
-  l'hash senza sale, per sempre (on-chain). Al momento della correzione il
-  registro era usato da una sola azienda, già informata
-  direttamente: nessuna nota pubblica necessaria. Mitigazione possibile per
-  casi sensibili: registrare di nuovo il fornitore/la valutazione con la
-  versione corretta.
+- ✅ **P1-bis — Dati privati scritti prima della correzione.** Restano con
+  l'hash senza sale, per sempre (on-chain): non correggibile. Al momento
+  della correzione il registro era usato da una sola azienda, il titolare
+  dei dati, che è stata informata, ha valutato il rischio in autonomia e lo
+  ha accettato. Chiuso come rischio accettato. Mitigazione disponibile per
+  eventuali casi sensibili: registrare di nuovo il fornitore o la
+  valutazione con la versione corretta.
 - ✅ **P2 — "Come funziona" prometteva più privacy del reale.** Riscritta la
   sezione dati/fiducia; aggiunto l'elenco dei metadati sempre visibili anche
   per i dati privati (esistenza, numero, date, etichetta, criteri).
@@ -135,13 +136,18 @@ deployato o dato già scritto on-chain), solo documentato
   Identificativi tecnici (tokenId, hash) tolti dalla vista principale;
   l'identificativo del registro resta in "Dettagli tecnici". "Come
   funziona" riscritta con un solo riquadro finale per i lettori tecnici.
-- ⏳ **U1** — Senza Membership la schermata dei registri dice "hai raggiunto
-  il massimo (0)" invece di "Nessuna Membership attiva" (confronto tra
-  BigInt e numero).
-- ⏳ **U2** — All'apertura compare "Connessione in corso…" ma nulla parte
-  finché non si clicca "Accedi".
-- ⏳ **U3** — Nessun controllo della rete dell'estensione (mainnet/testnet):
-  su rete sbagliata i salvataggi falliscono con errori poco chiari.
+- ✅ **U1** — Senza Membership la schermata dei registri diceva "hai
+  raggiunto il massimo (0)" invece di "Nessuna Membership attiva": il
+  contratto restituisce un BigInt e `0n === 0` è falso. Corretto
+  convertendo il valore prima dei confronti.
+- ✅ **U2** — All'apertura la pagina restava su "Connessione in corso…"
+  finché non si cliccava. Ora: senza estensione, schermata di benvenuto
+  con le istruzioni; con estensione non ancora autorizzata, benvenuto con
+  il pulsante "Accedi"; con sito già autorizzato, accesso automatico.
+- ✅ **U3** — Nessun controllo della rete dell'estensione. Ora, se
+  l'estensione non è su LUKSO mainnet, la pagina si ferma con un messaggio
+  chiaro e un pulsante che chiede all'estensione di cambiare rete (la
+  pagina si ricarica da sola al cambio).
 - ⏳ **U4** — I nomi dei criteri vengono ricavati tagliando l'etichetta a
   `" ("`: criteri con parentesi nel nome possono sovrascriversi.
 - ⏳ **U5** — Nota e interruttore pubblico/privato del modale valutazione
@@ -153,8 +159,12 @@ deployato o dato già scritto on-chain), solo documentato
   il grafico del fornitore.
 - ⏳ **U9** — Il "valore precedente" mostrato nel modale non passa da
   `escapeHtml` (visibile solo al proprietario).
-- ⏳ **U10** — Errori di rete e rifiuto nel wallet non gestiti all'accesso e
-  all'apertura del registro: la pagina resta ferma senza messaggio.
+- ✅ **U10** — Errori di rete e rifiuto nel wallet lasciavano la pagina
+  ferma senza messaggio. Ora accesso e caricamenti mostrano "Accesso
+  annullato" o "Caricamento non riuscito" con un pulsante "Riprova", che
+  ricrea la connessione e torna al registro aperto. Il provider di lettura
+  usa una rete fissa (`staticNetwork`), così un guasto momentaneo del nodo
+  non blocca anche i tentativi successivi.
 - ⏳ **U11** — Ogni fornitore rilegge l'intero storico eventi e fa una
   richiesta per ogni valutazione: lentezza e molte chiamate RPC.
 - ⏳ **U12** — Le correzioni tracciate (`supersedes`), supportate dal
