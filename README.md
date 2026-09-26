@@ -1,402 +1,273 @@
 # Supplier Trust Registry — ChainIntegrate
 
-Registro di valutazione fornitori on-chain su LUKSO. Ogni utente minta il proprio
-Registro (LSP8 soulbound), definisce i propri criteri di valutazione e giudica i
-fornitori con visibilità pubblica o privata decisa **valutazione per valutazione**.
+**Valutazione fornitori con storico verificabile e dati riservati sotto il
+tuo controllo.**
 
-Evoluzione multi-tenant del Supplier Quality Manager già in uso presso La Meccanica
-di Precisione (mono-tenant, mainnet). Feature-gated per tier via ChainIntegrate
-Membership (Bronze/Silver/Gold, multi-contratto per non richiedere redeploy quando
-arriverà un eventuale tier/contratto Diamond).
+Il Supplier Trust Registry permette a un'azienda di valutare i propri
+fornitori secondo criteri propri e di conservarne uno storico **permanente e
+non alterabile**. Ogni valutazione ha un'impronta digitale registrata su
+blockchain, così chiunque sia autorizzato a leggerla può verificarne
+l'integrità. Ogni nome e ogni valutazione possono restare **privati**: vengono
+cifrati nel browser, prima di lasciare il dispositivo, e solo chi conosce il
+codice segreto del registro può rileggerli.
+
+Pensato per chi gestisce qualifica e monitoraggio dei fornitori, a supporto
+dei processi qualità (ad esempio ISO 9001, controllo dei processi e dei
+prodotti forniti dall'esterno).
+
+**In produzione** su LUKSO mainnet. Primo utilizzo reale, con dati reali:
+**La Meccanica di Precisione Srl**.
+
+> 🇬🇧 **International clients** — The Supplier Trust Registry is available in
+> Italian and English, and ChainIntegrate provides consulting, onboarding and
+> support in English for international companies. See [Contacts](#contatti).
 
 ---
 
-## Struttura del repo
+## Cosa offre
+
+| Funzione | Dettaglio |
+|---|---|
+| **Criteri personalizzati** | Ogni registro definisce i propri criteri (es. Puntualità, Qualità, Documentazione) e la propria scala numerica; i criteri sono versionati, lo storico resta confrontabile |
+| **Storico non alterabile** | Nessuna voce può essere modificata o cancellata dopo il salvataggio, nemmeno da ChainIntegrate |
+| **Data di riferimento** | Ogni valutazione ha la data a cui si riferisce, non solo quella di inserimento: si possono importare storici |
+| **Pubblico o privato, voce per voce** | Nome del fornitore e singola valutazione, ciascuno pubblico o cifrato, indipendentemente |
+| **Grafici** | Andamento di ogni criterio nel tempo e punteggio medio di ogni valutazione |
+| **Documenti allegati** (Gold) | Certificati, rapporti, non conformità: seguono la stessa scelta pubblico/privato della valutazione |
+| **Più registri** (Silver, Gold) | Registri separati per categorie di fornitori, ognuno con i propri criteri e un'immagine personalizzata |
+| **Continuità aziendale** | Il contratto supporta il collegamento tra registri in caso di successione aziendale, con doppia conferma |
+| **Interfaccia bilingue** | Italiano e inglese, secondo la lingua del browser |
+
+In arrivo nell'interfaccia (già supportati dal contratto): correzioni
+tracciate di una valutazione e **condivisione riservata** di una singola
+valutazione con un destinatario esterno (Gold).
+
+## Piani
+
+L'accesso richiede una **ChainIntegrate Membership** attiva.
+
+| | Bronze | Silver | Gold |
+|---|---|---|---|
+| Registri | 1 | 2 | 5 |
+| Fornitori per registro | 5 | 25 | 100 |
+| Criteri | 4 | 8 | fino a 1000 |
+| Immagine del registro | — | ✅ | ✅ |
+| Documenti allegati (fino a 10 MB) | — | — | ✅ |
+| Condivisione riservata | — | — | ✅ (in arrivo nell'interfaccia) |
+
+I limiti sono configurati sul contratto e si possono adeguare senza
+rilasciare un nuovo contratto.
+
+## Privacy e sicurezza
+
+- **Cifratura nel browser.** I dati privati sono cifrati con AES-256-GCM
+  prima di lasciare il dispositivo; la chiave deriva dal codice segreto del
+  registro (PBKDF2-SHA256, 600.000 iterazioni) e non viene mai inviata o
+  salvata. ChainIntegrate non vede e non può recuperare i dati privati.
+- **Impronte non ricostruibili.** L'impronta pubblica di un dato privato
+  include un valore casuale nascosto nel contenuto cifrato: non può essere
+  usata per indovinare nomi o punteggi.
+- **Nessun servizio di terze parti nel browser.** Font, librerie e file sono
+  serviti dall'infrastruttura ChainIntegrate (nodo IPFS e nodo LUKSO propri).
+- **Accessi controllati.** Solo il proprietario di un registro può scriverci;
+  il caricamento di file è riservato a chi possiede un registro; l'accesso
+  avviene con firma del proprio Universal Profile, senza password.
+- **Allegati sicuri.** Si aprono nel browser solo PDF e immagini riconosciuti
+  dal contenuto reale; tutti gli altri formati vengono scaricati.
+- **Trasparenza sui limiti.** Restano sempre visibili l'esistenza di
+  fornitori e valutazioni, il loro numero e le date, l'etichetta del registro
+  e i criteri. I contenuti pubblicati o caricati non possono essere
+  cancellati in modo definitivo: la pagina "Come funziona" dell'app lo
+  spiega agli utenti.
+
+Stato completo delle verifiche: [Stato dell'audit](#stato-dellaudit).
+
+---
+
+## Architettura
+
+```
+Browser (index.html / admin.html)
+  │  cifratura e decifratura solo qui
+  ├── /shared/…  ───────────────► shared-assets (librerie e font, stesso dominio)
+  ├── /api/rpc   ─► Backend ────► nodo RPC LUKSO (solo letture sul contratto del registro)
+  ├── /api/auth, /api/ipfs/upload ─► Backend ─► API scrittura nodo IPFS (porta 5001, IP autorizzato)
+  ├── estensione Universal Profile ─► firma delle scritture sul contratto
+  └── lettura file ─► ipfs.chainintegrate.it (gateway del nodo, solo file propri)
+                      └─ fallback: api.universalprofile.cloud (hash verificato)
+```
+
+| Componente | Tecnologia |
+|---|---|
+| Contratto | Solidity 0.8.27, LUKSO LSP8 (registro non trasferibile), `@lukso/lsp8-contracts` 0.18.1 |
+| Frontend | HTML e JavaScript senza build, ethers 6.13.4, IBM Plex |
+| Backend | Node.js ≥ 18, Express 4, PM2, dietro Nginx |
+| Archiviazione | IPFS (Kubo) proprio; sulla catena solo impronte e riferimenti |
+
+### Principi di progetto (da non riaprire senza motivo)
+
+- **Registro non trasferibile.** La successione aziendale passa da un nuovo
+  registro collegato (`proposeSuccessor` / `confirmSuccessor`), mai da un
+  trasferimento.
+- **Il contratto non gestisce la cifratura.** Conosce solo impronta,
+  riferimento al file e flag pubblico/privato.
+- **Chiave derivata dal codice segreto + identità del registro** (keccak256
+  di tokenId e indirizzo del contratto), letta sempre dalla catena.
+- **Ogni JSON privato contiene un `salt` casuale di 32 byte** dentro il
+  contenuto cifrato: mai calcolare un'impronta pubblica su contenuto privato
+  senza sale.
+- **Limiti dei piani sempre configurabili** (`setTierLimits`, più contratti
+  Membership accettati insieme), mai scritti nel codice.
+- **Il server non vede mai dati in chiaro né codici segreti:** riceve solo
+  byte già cifrati (o pubblici).
+- **Tutto il contenuto scritto dagli utenti passa da `escapeHtml`** prima di
+  finire nella pagina: i registri pubblici sono letti anche da chi non li ha
+  scritti.
+
+---
+
+## Deploy attuali
+
+### Mainnet (LUKSO, chain 42)
+
+| | Indirizzo |
+|---|---|
+| SupplierRegistry V3 | [`0xFa143308D85b81Ed57547049F4A7718c3117A064`](https://explorer.execution.mainnet.lukso.network/address/0xFa143308D85b81Ed57547049F4A7718c3117A064) (blocco 8268392, sorgente verificato) |
+| Membership collegata | `0x18BaFeD9B151Fb29b3cFEa35A3197F4830072a3e` (ChainIntegrateMembershipCorporate) |
+| Owner del contratto (UP ChainIntegrate) | `0x4a2605796e0d91A9667d6E30365aEEC384C48c27` |
+
+### Testnet (LUKSO, chain 4201)
+
+| | Indirizzo |
+|---|---|
+| SupplierRegistry | [`0x325f6f9790409DB689cf976BcEEa621DE0606C7C`](https://explorer.execution.testnet.lukso.network/address/0x325f6f9790409DB689cf976BcEEa621DE0606C7C) (sorgente verificato) |
+| Membership collegata | `0x01D0930B375d037FA988b02871812D291cC0131D` |
+| Owner del contratto (UP ChainIntegrate testnet) | `0x83cBE526D949A3AaaB4EF9a03E48dd862e81472C` — diversa da quella mainnet |
+
+---
+
+## Struttura del repository
 
 ```
 supplier-trust-registry/
 ├── contracts/
-│   ├── SupplierRegistry-v3.sol   — contratto live su mainnet (LSP8, soulbound)
-│   ├── SupplierRegistry-v2.sol   — versione precedente (testnet)
-│   ├── SupplierRegistry.sol      — prima versione (testnet)
-│   └── mocks/
-│       └── MockMembership.sol    — SOLO per test locali, mai deployare su LUKSO vera
+│   ├── SupplierRegistry-v3.sol   contratto live su mainnet
+│   ├── SupplierRegistry-v2.sol   versione precedente (testnet)
+│   ├── SupplierRegistry.sol      prima versione (testnet)
+│   └── mocks/MockMembership.sol  solo per test locali
 ├── frontend/
-│   ├── index.html                — SPA vanilla JS, mini-app per il Grid
-│   ├── admin.html                — pannello owner del contratto (tier, metadata)
-│   ├── how-it-works.html         — guida utente IT/EN
-│   └── abi.subset.json           — ABI curata usata da index.html (estratta
-│                                    dalla compilazione reale, non scritta a mano)
+│   ├── index.html                applicazione
+│   ├── admin.html                pannello owner del contratto (piani, metadata, ripinnatura IPFS)
+│   ├── how-it-works.html         guida utente IT/EN
+│   └── abi.subset.json           ABI estratta dalla compilazione
 ├── backend/
-│   ├── server.js                 — Express, wiring delle rotte
-│   ├── auth.js                   — challenge/verify stile SIWE su Universal Profile
-│   ├── ipfs.js                   — upload/pin verso il nodo IPFS proprio (Kubo)
-│   ├── package.json
-│   └── .env.example              — template variabili ambiente (nessun segreto reale)
-├── scripts/
-│   └── deploy.js                 — deploy + configurazione Membership/tier
-├── hardhat.config.js             — reti LUKSO testnet/mainnet + verifica Blockscout
-├── package.json                  — progetto Hardhat (separato da backend/package.json)
-├── .env.example                  — template variabili per il deploy (root)
-├── LICENSE                       — tutti i diritti riservati, contatto per permessi
-├── .gitignore
-└── README.md                     — questo file
+│   ├── server.js                 rotte: proxy RPC, accesso, upload
+│   ├── auth.js                   accesso con firma del Universal Profile
+│   ├── ipfs.js                   upload verso il nodo IPFS
+│   └── .env.example              variabili d'ambiente (senza segreti)
+├── scripts/                      deploy dei contratti (deploy-v3.js per la V3)
+├── docs/
+│   ├── AUDIT.md                  dettaglio dell'audit
+│   └── OPERATIONS.md             guida operativa (VPS, Nginx, IPFS, controllo mensile)
+├── hardhat.config.js             reti LUKSO e verifica su Blockscout
+└── LICENSE                       tutti i diritti riservati
 ```
 
 ---
 
-## Deploy attuale — Mainnet (LUKSO chain 42)
+## Sviluppo e deploy
 
-- **SupplierRegistry V3**: [`0xFa143308D85b81Ed57547049F4A7718c3117A064`](https://explorer.execution.mainnet.lukso.network/address/0xFa143308D85b81Ed57547049F4A7718c3117A064)
-  (block 8268392) — deployato, configurato, ownership trasferita alla UP
-  ChainIntegrate mainnet, **sorgente verificato pubblicamente**, live in
-  produzione con dati reali
-- **Membership collegata (mainnet)**: `0x18BaFeD9B151Fb29b3cFEa35A3197F4830072a3e`
-  (ChainIntegrateMembershipCorporate)
-- **Owner del contratto (UP ChainIntegrate, mainnet)**: `0x4a2605796e0d91A9667d6E30365aEEC384C48c27`
-
-## Deploy attuale — Testnet (LUKSO chain 4201)
-
-- **SupplierRegistry**: [`0x325f6f9790409DB689cf976BcEEa621DE0606C7C`](https://explorer.execution.testnet.lukso.network/address/0x325f6f9790409DB689cf976BcEEa621DE0606C7C)
-  — deployato, configurato (3 tier collegati alla Membership testnet), ownership
-  trasferita alla UP ChainIntegrate testnet, **sorgente verificato pubblicamente**
-- **Membership collegata (testnet)**: `0x01D0930B375d037FA988b02871812D291cC0131D`
-- **Owner del contratto (UP ChainIntegrate, testnet)**: `0x83cBE526D949A3AaaB4EF9a03E48dd862e81472C`
-  (diversa dalla UP ChainIntegrate **mainnet**, `0x4a2605796e0d91A9667d6E30365aEEC384C48c27`
-  — non confonderle)
-
----
-
-## Stato attuale
-
-**Contratto** (`contracts/SupplierRegistry.sol`) — deployato su mainnet e
-testnet (vedi sopra), compila pulito contro `@lukso/lsp8-contracts@0.18.1` /
-`@lukso/lsp4-contracts@0.17.3`, sotto il limite EIP-170 con optimizer
-`runs: 1` (~18,7 KB). Verificato end-to-end contro un nodo Hardhat locale
-reale prima del deploy (mint, gating per tier, doppio mint rifiutato,
-transfer ownership) e ora anche **in produzione con dati reali**. Copre:
-
-- mint self-service del Registro, gated da Membership (multi-contratto,
-  limiti configurabili per `(contratto, tier)` senza bisogno di redeploy)
-- schema di valutazione versionato per registro (parametri custom, scala
-  numerica personalizzabile)
-- fornitori e valutazioni come eventi + contatori minimi (niente array in
-  storage — stesso pattern `eth_getLogs` già in uso in MatchPredictor)
-- privacy **per singola valutazione** (hash on-chain sempre, contenuto dietro
-  un puntatore IPFS che risolve a cifrato o in chiaro) e **per nome fornitore**
-  (stesso meccanismo)
-- correzione errori via `supersedes` (append-only, storico mai perso)
-- disclosure selettiva (feature Gold) con prova on-chain, cifratura re-key
-  interamente client-side
-- continuità di reputazione tra registri in caso di successione aziendale,
-  a doppia conferma (vecchio propone, nuovo accetta)
-
-**Frontend** (`frontend/index.html`) — palette "blueprint" (bianco/blu,
-ancorata al mondo dei disegni tecnici), IBM Plex Sans/Mono. **Non usa
-`up-provider`**: pagina standalone, connessione via `window.lukso`
-(iniettato dalla UP Browser Extension su qualunque pagina, come
-`window.ethereum` di MetaMask) — `up-provider` richiede l'incorporamento
-in un iframe dentro il Grid di universaleverything.io, incompatibile con
-l'uso come sito normale. Il registro da visualizzare viene da `?tokenId=`
-nell'URL, o dalla lista dei propri registri per default — permette anche di
-condividere un link diretto a un registro pubblico altrui.
-
-Flusso completo testato dal vivo, con dati reali, su più dispositivi:
-mint → definizione schema → fornitore (pubblico e privato) → valutazione
-(pubblica e privata) → lettura e decifratura confermata **indipendentemente**
-(un file cifrato scaricato da IPFS decifrato con successo in uno script
-Node separato, stessa logica PBKDF2+AES-GCM del browser). Cifratura
-client-side confermata **coerente tra dispositivi diversi** (stesso PIN,
-stessa chiave, ovunque — proprio l'obiettivo per cui si era scartata la
-derivazione da firma wallet in fase di progettazione).
-
-**Backend** (`backend/`) — Express minimale, deployato su VPS con PM2
-(`supplier-trust-registry-backend`, porta 3011) dietro Nginx
-(`supplier-trust-registry.chainintegrate.it`, proxy su `/api/`, certificato
-Let's Encrypt). Responsabilità: autenticazione "prova che controlli
-questa UP" via `isValidSignature` on-chain (stesso principio del SIWE
-documentato da LUKSO), upload verso l'API di scrittura del nodo IPFS
-proprio (`IPFS_API_URL`, porta 5001 raggiungibile solo dall'IP del VPS,
-come in traceability-registry) e proxy RPC in lettura. Non cifra mai
-nulla, non vede mai un PIN. Multer fissato a 2.x deliberatamente (la 1.x
-ha vulnerabilità note). In Nginx, `location /api/` deve avere
-`client_max_body_size 11M`: il backend accetta file fino a 10 MB
-(`MAX_UPLOAD_BYTES`) e con un limite più basso Nginx rifiuterebbe gli
-allegati Gold prima che arrivino al backend.
-
-**Lettura dei file** — il frontend legge direttamente dal gateway del nodo
-proprio `https://ipfs.chainintegrate.it` (serve solo i file pinnati da
-ChainIntegrate). Solo se il nodo non ha il file, fallback sul gateway
-LUKSO `https://api.universalprofile.cloud`: serve per i file caricati
-quando gli upload passavano ancora da Pinata. Dal fallback, i contenuti
-pubblici vengono accettati solo se corrispondono all'hash on-chain; quelli
-privati sono già protetti dalla cifratura AES-GCM.
-
-**Librerie e font** — serviti dal dominio stesso sotto `/shared/`, dal repo
-[`ChainIntegrate/shared-assets`](https://github.com/ChainIntegrate/shared-assets)
-clonato in `/var/www/shared-assets` e incluso nel blocco Nginx del sito
-(`include /var/www/shared-assets/nginx/shared-assets.conf;`). Nessuna
-richiesta a Google Fonts, esm.sh o altri CDN.
-
-### Lezioni dal primo test dal vivo
-
-Problemi reali trovati e corretti portando tutto in produzione — vale la
-pena non riscoprirli:
-
-- **`up-provider` richiede il Grid**: "No UP found" aprendo l'URL
-  direttamente non è un bug, è il comportamento corretto per una libreria
-  pensata per girare in iframe dentro universaleverything.io. Per un sito
-  standalone serve `window.lukso` (EIP-1193 standard), non `up-provider`.
-- **Express dietro Nginx senza `trust proxy`**: `express-rate-limit`
-  rifiuta silenziosamente le richieste quando rileva `X-Forwarded-For` ma
-  Express non si fida del proxy — la richiesta resta appesa finché Nginx
-  non va in timeout e risponde 502. Serve `app.set("trust proxy", 1)`
-  per qualunque Express dietro reverse proxy locale.
-- **`gateway.pinata.cloud` non esiste più** come dominio pubblico
-  condiviso — Pinata è passata a gateway dedicati per-account
-  (`<nome>.mypinata.cloud`, visibile nella dashboard Pinata → Gateways).
-- **Chain id testnet è 4201, non 42** — 42 è mainnet. Facile confondersi
-  copiando configurazioni pensate per mainnet (es. URL RPC thirdweb).
-- **Il codice segreto va richiesto solo quando serve davvero** — non ad
-  ogni apertura di un modale, solo al momento di cifrare qualcosa di
-  privato. Un fornitore/valutazione pubblica non deve mai chiederlo.
-- **Contenuto utente in `innerHTML` va sempre passato da `escapeHtml()`**
-  — con `?address=` che permette a chiunque di visitare un registro
-  pubblico altrui, un nome criterio o una nota non innocua scritta dal
-  proprietario diventerebbe eseguibile nel browser di un visitatore
-  ignaro. Non è un rischio teorico una volta che il contenuto può essere
-  letto da chi non l'ha scritto.
-
-### Chiusi
-
-- ~~Decisione finale KDF~~ — restiamo con PBKDF2 nativo + AES-256-GCM,
-  confermato in produzione con dati reali: stesso PIN → stessa chiave
-  derivata su dispositivi diversi. Argon2id/scrypt mai implementati,
-  nessun bisogno emerso di aggiungere quella dipendenza
-- ~~Rivedere `express-rate-limit` con `trust proxy` attivo~~ — `app.set("trust
-  proxy", 1)` aggiunto (i 502 in produzione erano causati proprio dalla sua
-  assenza), limite RPC alzato da 600 a 3000 richieste/5min per il traffico
-  mainnet reale
-- ~~Verificare l'URL Blockscout mainnet per `hardhat verify`~~ — confermato:
-  verifica sorgente riuscita sul contratto mainnet (vedi sezione deploy sopra)
-
-**Test automatici**: nessuna suite pianificata (niente `test/`, niente
-script `test` in `package.json` — `contracts/mocks/MockMembership.sol`
-resta comunque pronto se in futuro servisse). Approccio scelto: manutenzione
-reattiva su richieste e utilizzo reale, non copertura automatica preventiva.
-
----
-
-## Audit 2026-09
-
-Revisione completa di contratto, backend e frontend (settembre 2026). Qui si
-tiene traccia di ogni punto emerso e del suo stato. Il repo è pubblico: i
-punti ancora aperti sono descritti in modo generico finché non vengono
-corretti; il dettaglio tecnico viene aggiunto con la correzione.
-
-Legenda: ✅ corretto · ⏳ aperto · 📌 non correggibile (contratto già
-deployato o dato già scritto on-chain), solo documentato
-
-### Privacy
-
-- ✅ **P1 — Hash on-chain di dati privati ricostruibile per tentativi.**
-  `nameHash` (fornitore privato) e `contentHash` (valutazione privata) erano
-  il keccak256 del JSON **in chiaro**, senza nessun elemento segreto. Il file
-  su IPFS era (ed è) cifrato, ma chi indovinava il contenuto esatto poteva
-  confermarlo confrontando l'hash: verificato su dati reali per un nome
-  fornitore; per una valutazione senza note il costo dipende dalla
-  dimensione dello schema (pubblico). Corretto in `encryptJSON`: ogni JSON
-  privato riceve un `salt` casuale di 32 byte dentro il blob cifrato, quindi
-  l'hash non è più indovinabile, resta verificabile da chi decifra e la
-  lettura dei dati vecchi (senza `salt`) è invariata. Rimossa anche la
-  visualizzazione di `nameHash` nell'interfaccia.
-- 📌 **P1-bis — Dati privati scritti prima della correzione.** Restano con
-  l'hash senza sale, per sempre (on-chain). Al momento della correzione il
-  registro era usato da una sola azienda, già informata
-  direttamente: nessuna nota pubblica necessaria. Mitigazione possibile per
-  casi sensibili: registrare di nuovo il fornitore/la valutazione con la
-  versione corretta.
-- ✅ **P2 — "Come funziona" prometteva più privacy del reale.** Riscritta la
-  sezione dati/fiducia; aggiunto l'elenco dei metadati sempre visibili anche
-  per i dati privati (esistenza, numero, date, etichetta, criteri).
-- ✅ **P3 — Robustezza del codice segreto.** Nessun vincolo tecnico imposto
-  (scelta deliberata); il testo di creazione del codice e "Come funziona"
-  suggeriscono una frase di qualche parola invece di una parola sola.
-- ✅ **P4 — Risorse di terze parti caricate dal browser.** Font (Google
-  Fonts) e librerie (esm.sh) ora serviti dal nostro dominio tramite
-  `shared-assets`; lettura dei file dal nodo proprio invece che dal gateway
-  Pinata. Resta solo il fallback LUKSO, usato unicamente per i file non
-  presenti sul nodo (vecchi upload Pinata): ripinnarli sul nodo lo
-  renderebbe superfluo. Il pannello admin ha lo strumento "Files to re-pin
-  on the IPFS node": elenca tutti i file referenziati dal contratto, verifica
-  quali mancano sul nodo e prepara i comandi `ipfs pin add` da eseguire sul
-  nodo (per gli allegati di valutazioni private serve il codice segreto del
-  registro, usato solo nella pagina). Il controllo interroga sempre il
-  gateway senza cache del browser e, per ogni file mancante, mostra la
-  risposta del nodo e del gateway LUKSO (codice HTTP, timeout, errore di
-  rete). I file dei tempi di Pinata sono stati ripinnati sul nodo: il
-  fallback LUKSO resta solo come rete di sicurezza.
-
-  Il gateway `ipfs.chainintegrate.it` ha un limite di richieste per IP
-  (Nginx `limit_req`, 10 r/s): oltre il limite risponde 429 (503 con la
-  configurazione precedente). Frontend e pannello admin non lo trattano
-  come "file mancante": aspettano e riprovano fino a 3 volte (0,5/1/2 s)
-  prima di passare al gateway LUKSO. Consigliato sul gateway:
-  `limit_req zone=ipfs_gateway burst=100 nodelay;` e `limit_req_status 429;`
-  (la pagina di un registro può caricare decine di file in pochi istanti).
-
-  Procedura sul nodo (utente `ubuntu`, demone IPFS eseguito come `ipfs`):
-  incollare i comandi copiati dal pannello in `~/repin.sh`, poi dentro una
-  sessione `tmux` eseguire `sudo -u ipfs -H bash < ~/repin.sh`. Verifica:
-  `sudo -u ipfs -H ipfs pin ls --type=recursive <cid>` e nuovo Scan dal
-  pannello.
-- ✅ **P5 — Metadati sempre visibili anche per i dati privati** (esistenza,
-  numero e date di fornitori/valutazioni, etichetta del registro, criteri):
-  inevitabili per rendere lo storico verificabile, spiegati in "Come funziona".
-- ✅ **P6 — Pubblicazione di immagine/etichetta di un registro come metadata
-  standard dal pannello admin.** Procedura: l'admin pubblica solo dopo
-  consenso del proprietario del registro via email, con allegata l'immagine
-  da pubblicare. Promemoria aggiunto nel pannello admin.
-
-### Sicurezza
-
-- ✅ **S1 — Allegati aperti come pagine del sito.** Il tipo dell'allegato
-  lo dichiara chi lo carica e un `blob:` URL appartiene al dominio del sito:
-  un allegato HTML/SVG di una valutazione pubblica, aperto da un visitatore,
-  eseguiva codice come una pagina nostra, con accesso alla pagina d'origine
-  (verificato: il titolo della pagina del registro veniva modificato).
-  Corretto in `openAttachmentSafely`: il tipo si ricava dai byte del file,
-  mai dal JSON; si aprono (in scheda isolata, `noopener`) solo PDF e
-  immagini PNG/JPEG/GIF/WebP riconosciuti, tutto il resto si scarica come
-  `application/octet-stream` con nome ripulito. Vale anche per gli allegati
-  già caricati.
-- ✅ **S2 — Upload consentito a qualunque Universal Profile.** Bastava
-  firmare con una UP qualsiasi (gratuita da creare) per caricare e far
-  pinnare file sul nodo, anche via script. Ora `/api/ipfs/upload` accetta
-  solo chi ha almeno un Registro su questo contratto o è l'owner del
-  contratto (pannello admin), verificato on-chain (cache 5 min), e il
-  controllo avviene prima di ricevere il file.
-- ✅ **S3 (parte 1)** — indirizzo dell'API IPFS spostato da codice a `.env`
-  (`IPFS_API_URL`, come in traceability-registry). Resta nella cronologia
-  git: la protezione vera è il firewall del nodo.
-- ⏳ **S3 (parte 2)** — tratto VPS → nodo IPFS in chiaro: da valutare
-  TLS/tunnel (vale anche per traceability-registry). Non urgente: i
-  contenuti privati viaggiano già cifrati.
-- ✅ **S4 — Proxy RPC aperto a qualunque contratto.** `/api/rpc` ora
-  accetta `eth_call` ed `eth_getLogs` solo verso il contratto del registro
-  (più `RPC_EXTRA_ALLOWED_ADDRESSES` da `.env`, vuoto di default), e
-  `eth_getLogs` solo con indirizzo esplicito e al massimo 10.000 blocchi.
-- ✅ **S5 — Challenge di accesso sovrascrivibili.** Il server teneva una
-  sola challenge per indirizzo: chiunque poteva chiederne di continuo per
-  l'indirizzo di un altro e far fallire il suo accesso, e quelle mai usate
-  restavano in memoria. Ora le challenge non hanno stato per indirizzo: il
-  server consegna un `challengeToken` firmato (HMAC) che lega indirizzo,
-  nonce, scadenza (5 min) e impronta del messaggio; alla verifica il client
-  lo rimanda. Uso singolo tramite l'elenco dei nonce già usati, ripulito
-  alla scadenza.
-- ✅ **S6 (parte 1)** — nessuna libreria da CDN: ethers ed erc725.js da
-  `shared-assets`, versioni fissate e impronte in `SHA256SUMS`.
-- ⏳ **S6 (parte 2)** — Content-Security-Policy da aggiungere in Nginx.
-- 📌 **S7** — vincoli applicati solo lato interfaccia perché il contratto V3
-  non li impone (già noto per `addEvaluation`); da riprendere solo in
-  un'eventuale V4.
-
-### Interfaccia
-
-- ✅ **L1 — Linguaggio troppo tecnico/blockchain** (IT/EN): "Minta",
-  "transazione", "on-chain", "wallet", "tier", "IPFS", "UP", "disclosure
-  selettiva" sostituiti con termini d'uso comune (crea registro,
-  salvataggio, app Universal Profile, piano, file, condivisione riservata).
-  Identificativi tecnici (tokenId, hash) tolti dalla vista principale;
-  l'identificativo del registro resta in "Dettagli tecnici". "Come
-  funziona" riscritta con un solo riquadro finale per i lettori tecnici.
-- ⏳ **U1–U17** — bug dell'interfaccia individuati (messaggio errato senza
-  Membership, stato "Connessione in corso…" iniziale, controllo di rete
-  mancante, criteri con parentesi nel nome, campi del modale valutazione
-  non azzerati, data UTC, gestione errori, prestazioni della lettura
-  eventi, correzioni/condivisione riservata non disponibili in UI, HTML
-  malformato in `admin.html`).
-- ✅ **U17** — "Come funziona" parlava di "media per criterio": il grafico
-  mostra la media di ciascuna valutazione. Testo corretto.
-- ✅ **D1** — `backend/.env.example` allineato: via Pinata, porta 3011,
-  contratto V3 mainnet, nuova variabile `IPFS_API_URL`.
-
----
-
-## Ordine di lavoro deciso
-
-1. **Repo** — struttura, contratto, frontend, backend, README ✅
-2. **Codespace** — `hardhat.config.js`, script di deploy, deploy su **testnet**,
-   configurazione Membership, verifica del sorgente su Blockscout ✅
-3. **VPS** — backend deployato con PM2 + Nginx, frontend collegato,
-   flusso completo testato dal vivo con dati reali (mint → schema →
-   fornitore → valutazione → decifratura) ✅
-4. **Mainnet** — deploy `0xFa143308D85b81Ed57547049F4A7718c3117A064`,
-   configurazione Membership Corporate mainnet, ownership trasferita alla UP
-   ChainIntegrate mainnet, sorgente verificato, VPS aggiornato ✅
-
-Prossimo: manutenzione su richieste e utilizzo reale, pubblicazione sullo
-UP! Store (PR aperta).
-
----
-
-## Principi architetturali da tenere presente
-
-Per il contesto completo delle decisioni prese, vedi la cronologia della chat
-di progetto ("Registro Fornitori"). In sintesi, i punti che **non vanno
-riaperti senza motivo** perché già discussi a fondo:
-
-- Registro **soulbound**, non trasferibile — la successione aziendale passa
-  da un nuovo registro collegato via `proposeSuccessor`/`confirmSuccessor`,
-  non da un transfer del token
-- Il contratto **non gestisce mai la cifratura** — sa solo hash + puntatore
-  IPFS + flag pubblico/privato. Cifratura/decifratura sempre client-side
-- Chiave di cifratura derivata da PIN utente + sale (keccak256 di tokenId
-  del registro + indirizzo contratto), **letto sempre dalla catena**, mai
-  dalla sessione corrente — ChainIntegrate non salva né può recuperare nulla
-- Ogni JSON privato contiene un campo `salt` casuale (32 byte) **dentro** il
-  blob cifrato: l'hash pubblicato on-chain non si può ricostruire per
-  tentativi (vedi Audit 2026-09, P1). Mai calcolare un hash on-chain su
-  contenuto privato senza questo sale
-- Limiti per tier configurabili via `setTierLimits`, **mai** scolpiti nel
-  codice — un futuro tier/contratto Diamond è una pura operazione admin
-- LICENSE del repo: "tutti i diritti riservati" deliberato (non un
-  dimenticanza) — il vantaggio competitivo è nel frontend/UX con la
-  Membership, non nel contratto in sé
-- `@nomicfoundation/hardhat-verify@2.1.3`: l'opzione `etherscan.apiKey` per
-  reti Blockscout **deve** essere un oggetto per-network
-  (`{ luksoTestnet: "..." }`), non una stringa nuda — con una stringa nuda
-  il plugin non risale al `customChains` giusto e prova comunque l'endpoint
-  Etherscan V2 diretto, fallendo con "Missing or unsupported chainid
-  parameter". Scoperto confrontando con la config funzionante di MyCarBook.
-  Se `npx hardhat verify` fallisce di nuovo nonostante questo, il percorso
-  di riserva affidabile è: estrarre `input` da
-  `artifacts/build-info/*.json` e caricarlo manualmente su Blockscout
-  come Standard JSON Input (metodo già usato con successo per il deploy
-  testnet attuale).
-
----
-
-## Comandi utili
-
-Ambiente Hardhat (root):
+**Contratti** (root):
 ```bash
 npm install
 npx hardhat compile
-npm run deploy:testnet    # legge .env (root) — vedi .env.example
-npm run deploy:mainnet
+npx hardhat run scripts/deploy-v3.js --network luksoTestnet   # legge .env (vedi .env.example)
+npx hardhat run scripts/deploy-v3.js --network luksoMainnet
 ```
+Gli script `npm run deploy:*` puntano ancora a `scripts/deploy.js` (prima
+versione): per la V3 usare il comando esplicito sopra.
 
-Backend (`backend/`):
+`@openzeppelin/contracts` è fissato a `4.9.6` perché richiesto dagli LSP:
+una versione più recente rompe la risoluzione degli import Solidity.
+
+**Verifica del sorgente** (`hardhat-verify` 2.1.3 su Blockscout):
+`etherscan.apiKey` deve essere un oggetto per rete
+(`{ luksoTestnet: "...", luksoMainnet: "..." }`), non una stringa. Se
+`npx hardhat verify` fallisce, il ripiego affidabile è caricare su
+Blockscout l'`input` di `artifacts/build-info/*.json` come Standard JSON
+Input.
+
+**Backend**:
 ```bash
 cd backend
 npm install
-cp .env.example .env      # poi compilare con i valori reali
+cp .env.example .env      # compilare con i valori reali
 npm start
 ```
+Express gira dietro Nginx: `app.set("trust proxy", 1)` è necessario perché
+il limite di richieste funzioni (senza, le richieste restano appese e Nginx
+risponde 502).
 
-Nota su un conflitto già incontrato durante l'installazione: se nel repo
-finisce anche una versione più recente di `@openzeppelin/contracts` per
-altri motivi, la risoluzione delle import Solidity va in conflitto con
-quanto richiesto dagli LSP (`^4.9.6`) — il `package.json` di root la fissa
-già esplicitamente a `4.9.6`, non toccarla senza motivo.
+**Frontend**: file statici, nessuna build. Richiede i percorsi `/shared/…`
+serviti da Nginx (vedi [docs/OPERATIONS.md](docs/OPERATIONS.md)); aperto
+direttamente dal disco non trova librerie e font.
+
+Test: nessuna suite automatica; le modifiche vengono verificate con test
+end-to-end mirati (Chromium e backend reale su catena simulata), documentati
+nelle pull request.
+
+## Operatività
+
+Configurazione di VPS, Nginx, nodo IPFS, ripinnatura dei file e controllo
+mensile: **[docs/OPERATIONS.md](docs/OPERATIONS.md)**.
+
+---
+
+## Stato dell'audit
+
+Revisione completa di settembre 2026. Dettaglio di ogni punto, metodo e
+verifiche: **[docs/AUDIT.md](docs/AUDIT.md)**.
+
+Legenda: ✅ corretto · ⏳ aperto · 📌 limite noto, solo documentato
+
+| Area | Punto | Stato |
+|---|---|---|
+| Privacy | P1 Impronte dei dati privati ricostruibili per tentativi | ✅ |
+| | P1-bis Dati privati scritti prima della correzione | 📌 |
+| | P2 Descrizione della privacy allineata al reale | ✅ |
+| | P3 Suggerimenti per un codice segreto robusto | ✅ |
+| | P4 Nessuna risorsa di terze parti; file dal nodo proprio | ✅ |
+| | P5 Metadati sempre visibili dichiarati agli utenti | ✅ |
+| | P6 Pubblicazione immagini solo con consenso scritto | ✅ |
+| Sicurezza | S1 Apertura sicura degli allegati | ✅ |
+| | S2 Upload riservato a chi possiede un registro | ✅ |
+| | S3 Configurazione IPFS fuori dal codice | ✅ |
+| | S3 Cifratura del tratto VPS → nodo IPFS | ⏳ |
+| | S4 Proxy RPC limitato ai contratti del progetto | ✅ |
+| | S5 Accesso non disturbabile da terzi | ✅ |
+| | S6 Librerie servite in locale con impronte | ✅ |
+| | S6 Content-Security-Policy | ⏳ |
+| | S7 Vincoli imposti solo dall'interfaccia (contratto V3) | 📌 |
+| Interfaccia | L1 Linguaggio comprensibile, senza gergo tecnico | ✅ |
+| | U1–U11, U14–U16 Correzioni e miglioramenti d'uso | ⏳ |
+| | U12–U13 Correzioni tracciate e condivisione riservata nell'interfaccia | ⏳ |
+| | U17 Testi della guida | ✅ |
+| Documentazione | D1 Configurazione di esempio del backend | ✅ |
+
+---
+
+## Licenza
+
+Tutti i diritti riservati. Il codice è pubblicato a scopo di consultazione e
+valutazione; ogni altro uso richiede un consenso scritto. Vedi
+[LICENSE](LICENSE).
+
+## Contatti
+
+**ChainIntegrate** — consulenza in integrazione dati e blockchain.
+Assistenza in italiano e in inglese, anche per progetti internazionali.
+
+- Email: [info@chainintegrate.it](mailto:info@chainintegrate.it)
+- Telegram: [t.me/Simone_1977_2](https://t.me/Simone_1977_2)
+- LinkedIn: [ChainIntegrate](https://www.linkedin.com/company/chainintegrate)
+- Applicazione: [supplier-trust-registry.chainintegrate.it](https://supplier-trust-registry.chainintegrate.it)
