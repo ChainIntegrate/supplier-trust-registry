@@ -231,7 +231,17 @@ deployato o dato già scritto on-chain), solo documentato
   on the IPFS node": elenca tutti i file referenziati dal contratto, verifica
   quali mancano sul nodo e prepara i comandi `ipfs pin add` da eseguire sul
   nodo (per gli allegati di valutazioni private serve il codice segreto del
-  registro, usato solo nella pagina).
+  registro, usato solo nella pagina). Il controllo interroga sempre il
+  gateway senza cache del browser e, per ogni file mancante, mostra la
+  risposta del nodo e del gateway LUKSO (codice HTTP, timeout, errore di
+  rete). I file dei tempi di Pinata sono stati ripinnati sul nodo: il
+  fallback LUKSO resta solo come rete di sicurezza.
+
+  Procedura sul nodo (utente `ubuntu`, demone IPFS eseguito come `ipfs`):
+  incollare i comandi copiati dal pannello in `~/repin.sh`, poi dentro una
+  sessione `tmux` eseguire `sudo -u ipfs -H bash < ~/repin.sh`. Verifica:
+  `sudo -u ipfs -H ipfs pin ls --type=recursive <cid>` e nuovo Scan dal
+  pannello.
 - ✅ **P5 — Metadati sempre visibili anche per i dati privati** (esistenza,
   numero e date di fornitori/valutazioni, etichetta del registro, criteri):
   inevitabili per rendere lo storico verificabile, spiegati in "Come funziona".
