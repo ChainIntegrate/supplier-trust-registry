@@ -233,7 +233,7 @@ Legenda: ✅ corretto · ⏳ aperto · 📌 limite noto, solo documentato
 | Area | Punto | Stato |
 |---|---|---|
 | Privacy | P1 Impronte dei dati privati ricostruibili per tentativi | ✅ |
-| | P1-bis Dati privati scritti prima della correzione | 📌 |
+| | P1-bis Dati privati precedenti alla correzione: rischio valutato e accettato dal titolare | ✅ |
 | | P2 Descrizione della privacy allineata al reale | ✅ |
 | | P3 Suggerimenti per un codice segreto robusto | ✅ |
 | | P4 Nessuna risorsa di terze parti; file dal nodo proprio | ✅ |
