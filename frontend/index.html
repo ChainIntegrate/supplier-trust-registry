@@ -296,6 +296,27 @@
   </div>
 </div>
 
+<!-- ===================== MODALE CONDIVISIONE RISERVATA (U13) ===================== -->
+<div class="modal-backdrop" id="disclosure-modal">
+  <div class="modal">
+    <h2 id="disclosure-title"></h2>
+    <p class="muted" id="disclosure-desc" style="font-size:13px;"></p>
+    <label style="font-weight:400; display:flex; gap:8px; align-items:center;"><input type="checkbox" id="disclosure-include-name" style="width:auto;" checked /> <span id="disclosure-include-name-label"></span></label>
+    <label id="disclosure-include-doc-row" style="font-weight:400; display:flex; gap:8px; align-items:center;"><input type="checkbox" id="disclosure-include-doc" style="width:auto;" checked /> <span id="disclosure-include-doc-label"></span></label>
+    <div class="warning-box" id="disclosure-warning"></div>
+    <div id="disclosure-result" style="display:none; margin-top:12px;">
+      <label id="disclosure-link-label"></label>
+      <input type="text" id="disclosure-link" readonly style="font-size:12px;" onclick="this.select()" />
+      <button class="btn btn-ghost" id="disclosure-copy" style="margin-top:6px; padding:4px 10px; font-size:12px;"></button>
+    </div>
+    <div class="row" style="margin-top:16px; justify-content:flex-end;">
+      <button class="btn btn-ghost" id="disclosure-cancel"></button>
+      <button class="btn" id="disclosure-confirm"></button>
+    </div>
+    <div id="disclosure-status" class="muted" style="margin-top:8px;"></div>
+  </div>
+</div>
+
 <!-- ===================== MODALE NUOVA VALUTAZIONE ===================== -->
 <div class="modal-backdrop" id="evaluation-modal">
   <div class="modal">
@@ -546,23 +567,29 @@ function parseLogs(logs) {
   }).filter(Boolean);
 }
 
-const registryEventsKey = (tokenId) => "registry:" + tokenId.toLowerCase();
+// "registry2": dal U13 la scansione include anche EvaluationDisclosed — chiave
+// nuova, cosi' una cache locale precedente (senza condivisioni) non viene riusata.
+const registryEventsKey = (tokenId) => "registry2:" + tokenId.toLowerCase();
 const MINTED_EVENTS_KEY = "minted";
 
 // Fornitori e valutazioni di UN registro, con una sola lettura.
 async function registryEvents(tokenId) {
   const iface = state.contractReadOnly.interface;
   const topics = [
-    [iface.getEvent("SupplierAdded").topicHash, iface.getEvent("EvaluationAdded").topicHash],
+    [iface.getEvent("SupplierAdded").topicHash, iface.getEvent("EvaluationAdded").topicHash, iface.getEvent("EvaluationDisclosed").topicHash],
     ethers.zeroPadValue(tokenId, 32),
   ];
   const events = parseLogs(await getLogsCached(registryEventsKey(tokenId), topics));
   const suppliers = events.filter(e => e.name === "SupplierAdded");
   const evaluations = events.filter(e => e.name === "EvaluationAdded");
+  const disclosures = events.filter(e => e.name === "EvaluationDisclosed");
   return {
     suppliers,
     evaluations,
+    disclosures,
     evaluationsOf: (supplierId) => evaluations.filter(e => e.args.supplierId === BigInt(supplierId)),
+    disclosuresOf: (supplierId, evaluationId) => disclosures.filter(e =>
+      e.args.supplierId === BigInt(supplierId) && e.args.evaluationId === BigInt(evaluationId)),
   };
 }
 
@@ -762,6 +789,22 @@ const I18N = {
     loadingEllipsis: "Caricamento…",
     correctsHash: " · corregge la n. {id}",
     correctBtn: "Correggi",
+    discloseBtn: "Condividi in modo riservato",
+    discloseTitle: "Condividi in modo riservato la valutazione n. {id}",
+    discloseDesc: "Crea un link che permette a chi lo riceve di leggere solo questa valutazione, senza il codice del registro e senza renderla pubblica. Chi lo apre può anche verificare che il contenuto è identico a quello registrato in origine.",
+    discloseIncludeName: "Includi il nome del fornitore",
+    discloseIncludeDoc: "Includi l'allegato",
+    discloseWarning: "Il link non si può revocare: chiunque lo riceva, anche inoltrato, potrà leggere questa valutazione per sempre. Condividilo solo con chi deve leggerla.",
+    discloseConfirmBtn: "Crea il link",
+    discloseLinkLabel: "Link da inviare",
+    copyLinkBtn: "Copia link",
+    linkCopiedShort: "Link copiato.",
+    closeBtn: "Chiudi",
+    discloseDone: "Condivisione registrata. Invia il link solo alla persona interessata.",
+    disclosedTimes: "Condivisa in modo riservato {n} volta/e.",
+    showDisclosureLinks: "Mostra i link",
+    disclosureNumber: "Condivisione n. {id}",
+    disclosureLinkUnavailable: "link non recuperabile",
     correctionTitle: "Correggi la valutazione n. {id}",
     correctionInfo: "La nuova valutazione sostituirà la n. {id}. L'originale resta nello storico, visibile ma non più conteggiata in grafici e medie.",
     correctionSummary: "Sostituisce la valutazione n. {id}",
@@ -938,6 +981,22 @@ const I18N = {
     loadingEllipsis: "Loading…",
     correctsHash: " · corrects no. {id}",
     correctBtn: "Correct",
+    discloseBtn: "Share confidentially",
+    discloseTitle: "Share evaluation no. {id} confidentially",
+    discloseDesc: "Creates a link that lets the recipient read only this evaluation, without the registry code and without making it public. The recipient can also verify that the content is identical to what was originally recorded.",
+    discloseIncludeName: "Include the supplier name",
+    discloseIncludeDoc: "Include the attachment",
+    discloseWarning: "The link cannot be revoked: anyone who receives it, even forwarded, will be able to read this evaluation forever. Share it only with whoever needs to read it.",
+    discloseConfirmBtn: "Create link",
+    discloseLinkLabel: "Link to send",
+    copyLinkBtn: "Copy link",
+    linkCopiedShort: "Link copied.",
+    closeBtn: "Close",
+    discloseDone: "Sharing recorded. Send the link only to the intended person.",
+    disclosedTimes: "Shared confidentially {n} time(s).",
+    showDisclosureLinks: "Show links",
+    disclosureNumber: "Sharing no. {id}",
+    disclosureLinkUnavailable: "link not recoverable",
     correctionTitle: "Correct evaluation no. {id}",
     correctionInfo: "The new evaluation will replace no. {id}. The original stays in the history, visible but no longer counted in charts and averages.",
     correctionSummary: "Replaces evaluation no. {id}",
@@ -1627,6 +1686,7 @@ async function renderDashboard() {
   // in nessun tier (tutti i campi a zero/false). Il contratto stesso NON
   // impedisce addEvaluation ne' proposeSuccessor/confirmSuccessor in questo
   // stato: il blocco per queste due va fatto qui, lato UI.
+  state.canDisclose = canDiscloseSelectively; // condivisione riservata (Gold, audit U13)
   state.isRevoked = maxSuppliers === 0n && maxParams === 0n && !canDiscloseSelectively
     && maxRegistries === 0n && !canCustomizeImage;
   const supplierCount = await state.contractReadOnly.supplierCount(state.tokenId);
@@ -2111,7 +2171,8 @@ function renderSupplierChart(supplierId, resolved) {
 }
 
 async function renderEvaluationsForSupplier(supplierId) {
-  const events = (await registryEvents(state.tokenId)).evaluationsOf(supplierId);
+  const reg = await registryEvents(state.tokenId);
+  const events = reg.evaluationsOf(supplierId);
   const container = $(`evaluations-${supplierId}`);
   if (!container) return;
 
@@ -2130,18 +2191,23 @@ async function renderEvaluationsForSupplier(supplierId) {
   const resolved = await Promise.all(events.map(async (ev) => {
     const { evaluationId, isPublic, contentHash, supersedes, uri } = ev.args;
     let payload = null;
+    let plaintext = null; // testo esatto della valutazione privata: la sua impronta e' quella on-chain
     const locked = !isPublic && !state.cryptoKey;
 
     if (!locked) {
       try {
         const bytes = await fetchFromIPFS(uri, isPublic ? contentHash : undefined);
-        payload = isPublic
-          ? JSON.parse(new TextDecoder().decode(bytes))
-          : await decryptJSON(bytes, state.cryptoKey);
+        if (isPublic) {
+          payload = JSON.parse(new TextDecoder().decode(bytes));
+        } else {
+          plaintext = new TextDecoder().decode(await decryptBytes(bytes, state.cryptoKey));
+          payload = JSON.parse(plaintext);
+        }
       } catch {
         payload = null;
       }
     }
+    const disclosures = reg.disclosuresOf(supplierId, evaluationId);
 
     let blockTimestampMs = null;
     try {
@@ -2155,7 +2221,7 @@ async function renderEvaluationsForSupplier(supplierId) {
       ? new Date(payload.data + "T00:00:00").getTime()
       : (blockTimestampMs ?? 0);
 
-    return { evaluationId, isPublic, contentHash, supersedes, uri, payload, locked, blockTimestampMs, sortTimeMs };
+    return { evaluationId, isPublic, contentHash, supersedes, uri, payload, plaintext, disclosures, locked, blockTimestampMs, sortTimeMs };
   }));
 
   resolved.sort((a, b) => b.sortTimeMs - a.sortTimeMs); // piu' recenti (per data di riferimento) prima
@@ -2248,6 +2314,27 @@ function renderEvaluationDetail(supplierId, r) {
     fix.textContent = t("correctBtn");
     fix.addEventListener("click", () => openEvaluationModal(supplierId, r));
     el.appendChild(fix);
+  }
+
+  // Condivisione riservata (audit U13, Gold): solo valutazioni private,
+  // leggibili e ancora valide, solo il proprietario.
+  if (state.isOwner && !state.isRevoked && state.canDisclose && !r.isPublic && r.plaintext && !r.supersededBy) {
+    const share = document.createElement("button");
+    share.className = "btn btn-ghost";
+    share.style.cssText = "margin-top:6px; margin-left:6px; padding:4px 10px; font-size:12px;";
+    share.textContent = t("discloseBtn");
+    share.addEventListener("click", () => openDisclosureModal(supplierId, r));
+    el.appendChild(share);
+  }
+  if (state.isOwner && r.disclosures && r.disclosures.length > 0) {
+    const info = document.createElement("div");
+    info.className = "muted";
+    info.style.cssText = "font-size:12px; margin-top:6px;";
+    info.innerHTML = `${t("disclosedTimes", { n: r.disclosures.length })}
+      <button class="btn btn-ghost" style="padding:2px 8px; font-size:11px; margin-left:6px;">${t("showDisclosureLinks")}</button>
+      <div class="disclosure-links" style="margin-top:4px;"></div>`;
+    info.querySelector("button").addEventListener("click", () => showDisclosureLinks(r, info.querySelector(".disclosure-links")));
+    el.appendChild(info);
   }
 
   if (payload.document) {
@@ -2482,6 +2569,160 @@ async function fetchLatestCriteriaValues(supplierId) {
     } catch { /* valutazione illeggibile, saltala */ }
   }
   return best;
+}
+
+// =======================================================================
+// CONDIVISIONE RISERVATA (audit U13, Gold) — una singola valutazione
+// privata resa leggibile a chi riceve un link, senza dare il codice del
+// registro e senza renderla pubblica.
+// - Chiave AES-256 usa-e-getta generata qui; il link la porta DOPO il "#",
+//   parte dell'URL che il browser non invia mai a nessun server.
+// - Contenuto condiviso: il TESTO ESATTO della valutazione (e, se scelto,
+//   del nome del fornitore) cosi' come e' stato registrato: chi riceve puo'
+//   verificare che la sua impronta coincida con quella on-chain, cioe' che
+//   non e' stato modificato dopo. L'allegato, se incluso, viene ricifrato
+//   con la stessa chiave usa-e-getta (verificabile con l'impronta presente
+//   nel testo della valutazione).
+// - On-chain (discloseEvaluation): riferimento al file e impronta del
+//   contenuto condiviso — mai la chiave.
+// - Il file contiene anche la chiave usa-e-getta cifrata con la chiave del
+//   registro: il proprietario, sbloccato, puo' sempre ritrovare i link.
+// - Non revocabile: chi ha il link lo ha per sempre.
+// =======================================================================
+const bytesToB64 = (bytes) => btoa(String.fromCharCode(...bytes));
+const b64ToBytes = (text) => Uint8Array.from(atob(text), c => c.charCodeAt(0));
+const bytesToB64Url = (bytes) => bytesToB64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+function disclosureLink(supplierId, evaluationId, disclosureId, rawKey) {
+  const base = new URL("condivisione.html", window.location.href);
+  base.search = new URLSearchParams({ r: state.tokenId, s: String(supplierId), e: String(evaluationId), d: String(disclosureId) }).toString();
+  return `${base.toString()}#k=${bytesToB64Url(rawKey)}`;
+}
+
+let currentDisclosure = null;
+
+function openDisclosureModal(supplierId, r) {
+  currentDisclosure = { supplierId, r };
+  $("disclosure-title").textContent = t("discloseTitle", { id: r.evaluationId });
+  $("disclosure-desc").textContent = t("discloseDesc");
+  $("disclosure-include-name-label").textContent = t("discloseIncludeName");
+  $("disclosure-include-doc-label").textContent = t("discloseIncludeDoc");
+  $("disclosure-include-name").checked = true;
+  $("disclosure-include-doc").checked = true;
+  $("disclosure-include-doc-row").style.display = r.payload && r.payload.document ? "flex" : "none";
+  $("disclosure-warning").textContent = t("discloseWarning");
+  $("disclosure-result").style.display = "none";
+  $("disclosure-link-label").textContent = t("discloseLinkLabel");
+  $("disclosure-copy").textContent = t("copyLinkBtn");
+  $("disclosure-cancel").textContent = t("cancel");
+  $("disclosure-confirm").textContent = t("discloseConfirmBtn");
+  $("disclosure-confirm").style.display = "inline-block";
+  $("disclosure-confirm").disabled = false;
+  $("disclosure-status").textContent = "";
+  $("disclosure-modal").classList.add("open");
+}
+
+$("disclosure-cancel").addEventListener("click", () => $("disclosure-modal").classList.remove("open"));
+$("disclosure-copy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("disclosure-link").value); $("disclosure-status").textContent = t("linkCopiedShort"); }
+  catch { $("disclosure-link").select(); }
+});
+$("disclosure-confirm").addEventListener("click", async () => {
+  if (!currentDisclosure) return;
+  const { supplierId, r } = currentDisclosure;
+  const btn = $("disclosure-confirm");
+  const status = $("disclosure-status");
+  btn.disabled = true;
+  try {
+    const link = await createDisclosure(supplierId, r, {
+      includeName: $("disclosure-include-name").checked,
+      includeAttachment: $("disclosure-include-doc").checked,
+    }, status);
+    $("disclosure-link").value = link;
+    $("disclosure-result").style.display = "block";
+    btn.style.display = "none";
+    $("disclosure-cancel").textContent = t("closeBtn");
+    status.textContent = t("discloseDone");
+    renderEvaluationsForSupplier(supplierId);
+  } catch (e) {
+    status.textContent = explainRevert(e);
+    btn.disabled = false;
+  }
+});
+
+async function createDisclosure(supplierId, r, opts, status) {
+  status.textContent = t("encryptingUploading");
+  const reg = await registryEvents(state.tokenId);
+
+  let supplierName = null;
+  if (opts.includeName) {
+    const sup = reg.suppliers.find(ev => ev.args.supplierId === BigInt(supplierId));
+    if (sup) {
+      const bytes = await fetchFromIPFS(sup.args.nameUri, sup.args.isNamePublic ? sup.args.nameHash : undefined);
+      const plain = sup.args.isNamePublic ? bytes : await decryptBytes(bytes, state.cryptoKey);
+      supplierName = new TextDecoder().decode(plain);
+    }
+  }
+
+  const oneTimeKey = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+  const rawKey = new Uint8Array(await crypto.subtle.exportKey("raw", oneTimeKey));
+
+  let attachment = null;
+  if (opts.includeAttachment && r.payload && r.payload.document) {
+    const docBytes = await fetchFromIPFS(r.payload.document.uri);
+    const plainDoc = await decryptBytes(docBytes, state.cryptoKey);
+    const { bytes } = await encryptBytes(plainDoc, oneTimeKey);
+    attachment = { uri: await uploadToIPFS(bytes), name: r.payload.document.name, type: r.payload.document.type || "" };
+  }
+
+  const payloadBytes = new TextEncoder().encode(JSON.stringify({
+    v: 1,
+    chainId: CONFIG.CHAIN_ID,
+    contract: CONFIG.REGISTRY_CONTRACT,
+    tokenId: state.tokenId,
+    supplierId: String(supplierId),
+    evaluationId: String(r.evaluationId),
+    registryLabel: state.registryLabel || "",
+    evaluation: r.plaintext,
+    supplierName,
+    attachment,
+    salt: ethers.hexlify(crypto.getRandomValues(new Uint8Array(32))),
+  }));
+  const disclosureHash = ethers.keccak256(payloadBytes);
+  const { bytes: data } = await encryptBytes(payloadBytes, oneTimeKey);
+  const { bytes: ownerCopy } = await encryptBytes(rawKey, state.cryptoKey);
+  const blob = new TextEncoder().encode(JSON.stringify({ v: 1, owner: bytesToB64(ownerCopy), data: bytesToB64(data) }));
+  const uri = await uploadToIPFS(blob);
+
+  status.textContent = t("openExtensionToSign");
+  const tx = await state.contract.discloseEvaluation(state.tokenId, supplierId, r.evaluationId, uri, disclosureHash);
+  status.textContent = t("txPendingConfirmation");
+  const receipt = await tx.wait();
+  invalidateEvents(registryEventsKey(state.tokenId), receipt?.blockNumber);
+  const disclosed = receipt.logs
+    .map(l => { try { return state.contract.interface.parseLog(l); } catch { return null; } })
+    .find(e => e && e.name === "EvaluationDisclosed");
+  return disclosureLink(supplierId, r.evaluationId, disclosed.args.disclosureId, rawKey);
+}
+
+// Link delle condivisioni gia' fatte: la chiave usa-e-getta e' nel file,
+// cifrata con la chiave del registro (solo il proprietario sbloccato la legge).
+async function showDisclosureLinks(r, box) {
+  box.textContent = t("loadingEllipsis");
+  const rows = [];
+  for (const ev of r.disclosures) {
+    const { supplierId, evaluationId, disclosureId, disclosureUri } = ev.args;
+    try {
+      const blob = JSON.parse(new TextDecoder().decode(await fetchFromIPFS(disclosureUri)));
+      const rawKey = await decryptBytes(b64ToBytes(blob.owner), state.cryptoKey);
+      const link = disclosureLink(supplierId, evaluationId, disclosureId, rawKey);
+      rows.push(`<div style="margin-top:4px;">${t("disclosureNumber", { id: disclosureId })}
+        <input type="text" readonly value="${escapeHtml(link)}" style="font-size:11px; margin-top:2px;" onclick="this.select()" /></div>`);
+    } catch {
+      rows.push(`<div style="margin-top:4px;">${t("disclosureNumber", { id: disclosureId })}: ${t("disclosureLinkUnavailable")}</div>`);
+    }
+  }
+  box.innerHTML = rows.join("");
 }
 
 let currentCorrection = null; // valutazione che si sta correggendo (audit U12), null = nuova

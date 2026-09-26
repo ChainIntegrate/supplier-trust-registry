@@ -191,8 +191,33 @@ non confermata
   n. X") ma esce da grafici, medie e "valore precedente". Una correzione può
   cambiare pubblico/privato, con avviso che un originale pubblico resta
   pubblico; l'allegato originale viene riusato se la scelta non cambia.
-- ⏳ **U13** — La condivisione riservata (Gold), supportata dal contratto,
-  non è ancora disponibile nell'interfaccia.
+- ✅ **U13** — La condivisione riservata (Gold), supportata dal contratto,
+  non era disponibile nell'interfaccia. Ora il proprietario, su una
+  valutazione privata ancora valida, può creare un link per un destinatario
+  esterno, scegliendo se includere il nome del fornitore e l'allegato.
+  Come funziona:
+  - viene generata una chiave usa-e-getta, diversa per ogni condivisione;
+    il link la porta dopo il `#`, parte dell'indirizzo che il browser non
+    invia mai al server;
+  - si condivide il testo esatto della valutazione (e del nome) com'era
+    stato registrato, cifrato con quella chiave; l'allegato viene ricifrato
+    con la stessa chiave;
+  - sulla catena finiscono solo il riferimento al file e la sua impronta
+    (`discloseEvaluation`), mai la chiave;
+  - il file contiene anche la chiave usa-e-getta cifrata con la chiave del
+    registro: il proprietario ritrova i link già creati ("Mostra i link");
+  - la pagina `condivisione.html` non richiede account né estensione e,
+    prima di mostrare qualcosa, verifica: che il file corrisponda
+    all'impronta della condivisione; che il testo della valutazione
+    corrisponda all'impronta registrata quando è stata salvata (quindi non
+    modificabile dopo, nemmeno dal proprietario); nome e allegato con le
+    rispettive impronte. Se la valutazione è stata corretta in seguito, lo
+    segnala.
+  Il link non è revocabile (lo spiega il modale prima di crearlo).
+  Verificato con test end-to-end: creazione, link ritrovato identico,
+  nessun contenuto o chiave in chiaro su IPFS o verso il server, chiave
+  sbagliata, link troncato, file alterato, valutazione diversa da quella
+  registrata, correzione successiva, piano non Gold (pulsante assente).
 - ✅ **U14** — Per consultare un registro pubblico serviva comunque
   l'estensione, e mancava un modo per condividerlo. Ora chi apre il link di
   un registro (`?tokenId=…`) lo consulta subito in sola lettura, senza

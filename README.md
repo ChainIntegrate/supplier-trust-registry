@@ -38,10 +38,8 @@ prodotti forniti dall'esterno).
 | **Più registri** (Silver, Gold) | Registri separati per categorie di fornitori, ognuno con i propri criteri e un'immagine personalizzata |
 | **Continuità aziendale** | Il contratto supporta il collegamento tra registri in caso di successione aziendale, con doppia conferma |
 | **Link condivisibile** | Ogni registro ha un link diretto: chi lo apre ne consulta i contenuti pubblici anche senza estensione e senza accedere |
+| **Condivisione riservata** (Gold) | Una singola valutazione privata, con nome del fornitore e allegato a scelta, resa leggibile a un destinatario esterno (cliente, ente di certificazione, auditor) tramite un link personale. Chi lo riceve non ha bisogno di account né estensione, e la pagina verifica che il contenuto sia identico a quello registrato in origine |
 | **Interfaccia bilingue** | Italiano e inglese, secondo la lingua del browser |
-
-In arrivo nell'interfaccia (già supportata dal contratto): **condivisione
-riservata** di una singola valutazione con un destinatario esterno (Gold).
 
 ## Piani
 
@@ -54,7 +52,7 @@ L'accesso richiede una **ChainIntegrate Membership** attiva.
 | Criteri | 4 | 8 | fino a 1000 |
 | Immagine del registro | — | ✅ | ✅ |
 | Documenti allegati (fino a 10 MB) | — | — | ✅ |
-| Condivisione riservata | — | — | ✅ (in arrivo nell'interfaccia) |
+| Condivisione riservata | — | — | ✅ |
 
 I limiti sono configurati sul contratto e si possono adeguare senza
 rilasciare un nuovo contratto.
@@ -160,6 +158,7 @@ supplier-trust-registry/
 │   ├── index.html                applicazione
 │   ├── admin.html                pannello owner del contratto (piani, metadata, ripinnatura IPFS)
 │   ├── how-it-works.html         guida utente IT/EN
+│   ├── condivisione.html         pagina di chi riceve una condivisione riservata (senza account)
 │   └── abi.subset.json           ABI estratta dalla compilazione
 ├── backend/
 │   ├── server.js                 rotte: proxy RPC, accesso, upload
@@ -255,7 +254,7 @@ Legenda: ✅ corretto · ⏳ aperto · 📌 limite noto, solo documentato
 | | U11 Prestazioni: lettura unica per registro e cache nel browser | ✅ |
 | | U14 Consultazione senza estensione, link da condividere | ✅ |
 | | U12 Correzioni tracciate delle valutazioni | ✅ |
-| | U13 Condivisione riservata nell'interfaccia (Gold) | ⏳ |
+| | U13 Condivisione riservata nell'interfaccia (Gold) | ✅ |
 | | U17 Testi della guida · U18 Scrittura riservata al proprietario | ✅ |
 | Documentazione | D1 Configurazione di esempio del backend | ✅ |
 
