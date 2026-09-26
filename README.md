@@ -36,6 +36,7 @@ prodotti forniti dall'esterno).
 | **Documenti allegati** (Gold) | Certificati, rapporti, non conformità: seguono la stessa scelta pubblico/privato della valutazione |
 | **Più registri** (Silver, Gold) | Registri separati per categorie di fornitori, ognuno con i propri criteri e un'immagine personalizzata |
 | **Continuità aziendale** | Il contratto supporta il collegamento tra registri in caso di successione aziendale, con doppia conferma |
+| **Link condivisibile** | Ogni registro ha un link diretto: chi lo apre ne consulta i contenuti pubblici anche senza estensione e senza accedere |
 | **Interfaccia bilingue** | Italiano e inglese, secondo la lingua del browser |
 
 In arrivo nell'interfaccia (già supportati dal contratto): correzioni
@@ -252,7 +253,7 @@ Legenda: ✅ corretto · ⏳ aperto · 📌 limite noto, solo documentato
 | | U1–U3, U10 Primo accesso, rete, messaggi d'errore | ✅ |
 | | U4–U9, U15 Criteri, date, punteggi, grafici, visitatori | ✅ |
 | | U11 Prestazioni: lettura unica per registro e cache nel browser | ✅ |
-| | U14 Consultazione senza estensione, link da condividere | ⏳ |
+| | U14 Consultazione senza estensione, link da condividere | ✅ |
 | | U12–U13 Correzioni tracciate e condivisione riservata nell'interfaccia | ⏳ |
 | | U17 Testi della guida · U18 Scrittura riservata al proprietario | ✅ |
 | Documentazione | D1 Configurazione di esempio del backend | ✅ |
