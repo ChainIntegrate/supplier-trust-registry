@@ -251,7 +251,8 @@ Legenda: ✅ corretto · ⏳ aperto · 📌 limite noto, solo documentato
 | Interfaccia | L1 Linguaggio comprensibile, senza gergo tecnico | ✅ |
 | | U1–U3, U10 Primo accesso, rete, messaggi d'errore | ✅ |
 | | U4–U9, U15 Criteri, date, punteggi, grafici, visitatori | ✅ |
-| | U11 Prestazioni, U14 consultazione senza estensione | ⏳ |
+| | U11 Prestazioni: lettura unica per registro e cache nel browser | ✅ |
+| | U14 Consultazione senza estensione, link da condividere | ⏳ |
 | | U12–U13 Correzioni tracciate e condivisione riservata nell'interfaccia | ⏳ |
 | | U17 Testi della guida | ✅ |
 | Documentazione | D1 Configurazione di esempio del backend | ✅ |

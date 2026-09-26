@@ -173,8 +173,15 @@ non confermata
   ricrea la connessione e torna al registro aperto. Il provider di lettura
   usa una rete fissa (`staticNetwork`), così un guasto momentaneo del nodo
   non blocca anche i tentativi successivi.
-- ⏳ **U11** — Ogni fornitore rilegge l'intero storico eventi e fa una
-  richiesta per ogni valutazione: lentezza e molte chiamate RPC.
+- ✅ **U11** — Ogni fornitore rileggeva l'intero storico eventi dal blocco
+  di deploy e faceva una richiesta per ogni valutazione: il numero di
+  richieste cresceva con fornitori, valutazioni ed età della catena. Ora
+  una sola lettura per registro (fornitori e valutazioni insieme), finestre
+  lette in parallelo, risultati e timestamp dei blocchi ricordati nel
+  browser (`localStorage`, solo dati già pubblici sulla catena): alle
+  visite successive si leggono solo i blocchi nuovi. Misurato su un
+  registro di prova con 8 fornitori, 32 valutazioni e 150.000 blocchi di
+  storia: da 244 a 73 richieste alla prima visita, a 9 alle successive.
 - ⏳ **U12** — Le correzioni tracciate (`supersedes`), supportate dal
   contratto, non sono utilizzabili dall'interfaccia; le valutazioni
   corrette restano nei grafici.
@@ -183,8 +190,10 @@ non confermata
 - ⏳ **U14** — Per consultare un registro pubblico serve comunque
   l'estensione; manca un pulsante "condividi link".
 - ✅ **U15** — I visitatori vedevano "Sblocca per vedere" su contenuti
-  privati che non potranno mai aprire. Ora vedono "Contenuto riservato al
-  proprietario del registro".
+  privati. Ora vedono "Contenuto riservato" con un pulsante secondario "Ho
+  il codice del registro": la chiave dipende dal codice e dal registro, non
+  da chi è collegato, quindi un collaboratore con un altro Universal
+  Profile che conosce il codice può comunque leggere i dati privati.
 - ➖ **U16** — Non confermato: il tag in `admin.html` è chiuso
   correttamente. La segnalazione nasceva da un output troncato durante la
   revisione.

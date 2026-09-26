@@ -428,22 +428,192 @@ const $ = (id) => document.getElementById(id);
 // blocchi dal deploy, una singola queryFilter(fromBlock=DEPLOY_BLOCK)
 // supera quel limite — non basta "il blocco di partenza giusto", serve
 // spezzare la lettura in finestre piu' piccole e unire i risultati.
-// Sostituisce OGNI queryFilter diretta nel resto del file.
+// Le letture a finestre sono in scanLogs (sotto), usata da getLogsCached.
 // =======================================================================
 const MAX_BLOCK_RANGE = 9000; // margine di sicurezza sotto il limite noto di 10.000
 
-async function queryFilterChunked(contract, filter, fromBlock) {
-  const provider = contract.runner.provider ?? contract.runner;
-  const latest = await provider.getBlockNumber();
-  let allEvents = [];
-  let start = fromBlock;
-  while (start <= latest) {
-    const end = Math.min(start + MAX_BLOCK_RANGE, latest);
-    const chunk = await contract.queryFilter(filter, start, end);
-    allEvents = allEvents.concat(chunk);
-    start = end + 1;
+
+// =======================================================================
+// LETTURA EVENTI CON CACHE (audit U11) — prima ogni fornitore rileggeva
+// l'intero storico dal blocco di deploy (una scansione a finestre per
+// fornitore, piu' una richiesta di blocco per ogni valutazione): il numero
+// di richieste cresceva con fornitori, valutazioni ed eta' della catena.
+// Ora:
+// - UNA sola scansione per registro, che raccoglie insieme fornitori e
+//   valutazioni (topic0 = SupplierAdded OPPURE EvaluationAdded, topic1 =
+//   tokenId), e una sola per l'elenco dei registri (RegistryMinted);
+// - finestre lette in parallelo (poche alla volta, per il limite del proxy);
+// - risultati tenuti in memoria e in localStorage: alla visita successiva
+//   si leggono solo i blocchi nuovi (piu' un piccolo margine all'indietro,
+//   per sicurezza). Sono solo dati gia' pubblici sulla catena (impronte,
+//   riferimenti ai file, flag): nulla di cifrato o di privato;
+// - timestamp dei blocchi chiesti una volta per blocco e ricordati.
+// Dopo una scrittura si chiama invalidateEvents(), cosi' la lettura
+// successiva va comunque in rete (solo per i blocchi nuovi).
+// =======================================================================
+const EVENT_SCAN_CONCURRENCY = 4;
+const EVENT_REORG_MARGIN = 64;       // blocchi riletti a ogni aggiornamento
+const EVENT_FRESH_MS = 15_000;       // entro questo tempo niente nuove letture
+const EVENT_STORAGE_PREFIX = `str-events-v1:${CONFIG.CHAIN_ID}:${CONFIG.REGISTRY_CONTRACT.toLowerCase()}:`;
+
+const eventCache = new Map();        // chiave -> { toBlock, logs, updatedAt, stale }
+const eventInFlight = new Map();     // chiave -> Promise (letture concorrenti condivise)
+const blockTimestamps = new Map();   // blockHash -> ms
+
+function storageGet(key) {
+  try { return JSON.parse(localStorage.getItem(key) || "null"); } catch { return null; }
+}
+function storageSet(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* spazio pieno o storage bloccato: solo memoria */ }
+}
+
+// minBlock: blocco di una scrittura appena confermata. Il nodo di lettura
+// puo' essere un istante indietro rispetto a quello dell'estensione: la
+// lettura successiva aspetta (fino a ~10 s) che lo raggiunga, invece di
+// mostrare la lista senza il nuovo elemento.
+const pendingMinBlock = new Map();
+function invalidateEvents(key, minBlock = 0) {
+  const entry = eventCache.get(key);
+  if (entry) entry.stale = true;
+  if (minBlock) pendingMinBlock.set(key, Math.max(pendingMinBlock.get(key) || 0, Number(minBlock)));
+}
+
+async function latestBlockAtLeast(minBlock) {
+  let latest = await state.readOnlyProvider.getBlockNumber();
+  for (let i = 0; i < 10 && latest < minBlock; i++) {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    latest = await state.readOnlyProvider.getBlockNumber();
   }
-  return allEvents;
+  return latest;
+}
+
+async function scanLogs(topics, fromBlock, toBlock) {
+  const windows = [];
+  for (let start = fromBlock; start <= toBlock; start += MAX_BLOCK_RANGE + 1) {
+    windows.push([start, Math.min(start + MAX_BLOCK_RANGE, toBlock)]);
+  }
+  const results = new Array(windows.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < windows.length) {
+      const i = next++;
+      const [from, to] = windows[i];
+      results[i] = await state.readOnlyProvider.getLogs({ address: CONFIG.REGISTRY_CONTRACT, topics, fromBlock: from, toBlock: to });
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(EVENT_SCAN_CONCURRENCY, windows.length) }, worker));
+  return results.flat().map(l => ({ b: l.blockNumber, h: l.blockHash, x: l.transactionHash, i: l.index, t: [...l.topics], d: l.data }));
+}
+
+async function getLogsCached(key, topics) {
+  let entry = eventCache.get(key);
+  if (!entry) {
+    const saved = storageGet(EVENT_STORAGE_PREFIX + key);
+    if (saved && Array.isArray(saved.logs) && Number.isInteger(saved.toBlock)) {
+      entry = { toBlock: saved.toBlock, logs: saved.logs, updatedAt: 0, stale: true };
+      eventCache.set(key, entry);
+    }
+  }
+  if (entry && !entry.stale && Date.now() - entry.updatedAt < EVENT_FRESH_MS) return entry.logs;
+  if (eventInFlight.has(key)) return eventInFlight.get(key);
+
+  const promise = (async () => {
+    const latest = await latestBlockAtLeast(pendingMinBlock.get(key) || 0);
+    pendingMinBlock.delete(key);
+    const from = entry ? Math.max(CONFIG.DEPLOY_BLOCK, entry.toBlock + 1 - EVENT_REORG_MARGIN) : CONFIG.DEPLOY_BLOCK;
+    const fresh = from <= latest ? await scanLogs(topics, from, latest) : [];
+    const kept = entry ? entry.logs.filter(l => l.b < from) : [];
+    const seen = new Set();
+    const logs = [...kept, ...fresh]
+      .filter(l => { const id = l.x + ":" + l.i; if (seen.has(id)) return false; seen.add(id); return true; })
+      .sort((a, b) => a.b - b.b || a.i - b.i);
+    const updated = { toBlock: latest, logs, updatedAt: Date.now(), stale: false };
+    eventCache.set(key, updated);
+    storageSet(EVENT_STORAGE_PREFIX + key, { toBlock: latest, logs });
+    return logs;
+  })();
+  eventInFlight.set(key, promise);
+  try { return await promise; } finally { eventInFlight.delete(key); }
+}
+
+function parseLogs(logs) {
+  const iface = state.contractReadOnly.interface;
+  return logs.map(l => {
+    const parsed = iface.parseLog({ topics: l.t, data: l.d });
+    return parsed && { name: parsed.name, args: parsed.args, blockNumber: l.b, blockHash: l.h };
+  }).filter(Boolean);
+}
+
+const registryEventsKey = (tokenId) => "registry:" + tokenId.toLowerCase();
+const MINTED_EVENTS_KEY = "minted";
+
+// Fornitori e valutazioni di UN registro, con una sola lettura.
+async function registryEvents(tokenId) {
+  const iface = state.contractReadOnly.interface;
+  const topics = [
+    [iface.getEvent("SupplierAdded").topicHash, iface.getEvent("EvaluationAdded").topicHash],
+    ethers.zeroPadValue(tokenId, 32),
+  ];
+  const events = parseLogs(await getLogsCached(registryEventsKey(tokenId), topics));
+  const suppliers = events.filter(e => e.name === "SupplierAdded");
+  const evaluations = events.filter(e => e.name === "EvaluationAdded");
+  return {
+    suppliers,
+    evaluations,
+    evaluationsOf: (supplierId) => evaluations.filter(e => e.args.supplierId === BigInt(supplierId)),
+  };
+}
+
+// Tutti i registri mintati (elenco del visitatore ed etichetta del registro).
+async function mintedEvents() {
+  const topics = [state.contractReadOnly.interface.getEvent("RegistryMinted").topicHash];
+  return parseLogs(await getLogsCached(MINTED_EVENTS_KEY, topics));
+}
+
+// Il timestamp di un blocco non cambia mai: ricordato anche tra una visita
+// e l'altra (localStorage), salvato in blocco poco dopo l'ultima lettura.
+const BLOCK_TS_STORAGE_KEY = EVENT_STORAGE_PREFIX + "block-timestamps";
+let blockTimestampsLoaded = false;
+let blockTimestampsSaveTimer = null;
+
+function loadBlockTimestamps() {
+  if (blockTimestampsLoaded) return;
+  blockTimestampsLoaded = true;
+  const saved = storageGet(BLOCK_TS_STORAGE_KEY);
+  if (saved && typeof saved === "object") {
+    for (const [hash, ms] of Object.entries(saved)) if (Number.isFinite(ms)) blockTimestamps.set(hash, ms);
+  }
+}
+
+function saveBlockTimestamps() {
+  clearTimeout(blockTimestampsSaveTimer);
+  blockTimestampsSaveTimer = null;
+  const plain = {};
+  for (const [hash, ms] of blockTimestamps) if (typeof ms === "number") plain[hash] = ms;
+  storageSet(BLOCK_TS_STORAGE_KEY, plain);
+}
+
+function scheduleBlockTimestampsSave() {
+  clearTimeout(blockTimestampsSaveTimer);
+  blockTimestampsSaveTimer = setTimeout(saveBlockTimestamps, 200);
+}
+// salvataggio garantito anche se la scheda viene chiusa subito
+window.addEventListener("pagehide", () => { if (blockTimestampsSaveTimer) saveBlockTimestamps(); });
+
+async function getBlockTimestampMs(blockHash) {
+  loadBlockTimestamps();
+  if (blockTimestamps.has(blockHash)) return blockTimestamps.get(blockHash);
+  const promise = state.readOnlyProvider.getBlock(blockHash).then(b => Number(b.timestamp) * 1000);
+  blockTimestamps.set(blockHash, promise);
+  try {
+    const ms = await promise;
+    blockTimestamps.set(blockHash, ms);
+    scheduleBlockTimestampsSave();
+    return ms;
+  } catch (e) {
+    blockTimestamps.delete(blockHash);
+    throw e;
+  }
 }
 
 // =======================================================================
@@ -602,7 +772,8 @@ const I18N = {
     rangeError: '"{label}" deve essere tra {min} e {max} (hai messo {value}).',
     emptyValue: "un valore vuoto",
     dateRequired: "Inserisci la data a cui si riferisce la valutazione.",
-    privateContent: "Contenuto riservato al proprietario del registro.",
+    privateContent: "Contenuto riservato.",
+    haveCodeBtn: "Ho il codice del registro",
 
     errRegistryAlreadyMinted: "Hai già un registro su questo profilo.",
     errNoRecognizedMembership: "Nessuna Membership attiva su questo profilo.",
@@ -766,7 +937,8 @@ const I18N = {
     rangeError: '"{label}" must be between {min} and {max} (you entered {value}).',
     emptyValue: "an empty value",
     dateRequired: "Enter the date this evaluation refers to.",
-    privateContent: "Content reserved to the registry owner.",
+    privateContent: "Private content.",
+    haveCodeBtn: "I have the registry code",
 
     errRegistryAlreadyMinted: "You already have a registry on this profile.",
     errNoRecognizedMembership: "No active Membership on this profile.",
@@ -1163,20 +1335,11 @@ function shortAddr(addr) {
 // molto piu' tardi, quando qualcosa smette di decifrarsi.
 // =======================================================================
 async function findPrivateValidationTarget(tokenId) {
-  const supplierEvents = await queryFilterChunked(
-    state.contractReadOnly,
-    state.contractReadOnly.filters.SupplierAdded(tokenId),
-    CONFIG.DEPLOY_BLOCK
-  );
-  const privateSupplier = supplierEvents.find(ev => !ev.args.isNamePublic);
+  const { suppliers, evaluations } = await registryEvents(tokenId);
+  const privateSupplier = suppliers.find(ev => !ev.args.isNamePublic);
   if (privateSupplier) return privateSupplier.args.nameUri;
 
-  const evalEvents = await queryFilterChunked(
-    state.contractReadOnly,
-    state.contractReadOnly.filters.EvaluationAdded(tokenId, null),
-    CONFIG.DEPLOY_BLOCK
-  );
-  const privateEval = evalEvents.find(ev => !ev.args.isPublic);
+  const privateEval = evaluations.find(ev => !ev.args.isPublic);
   if (privateEval) return privateEval.args.uri;
 
   return null; // nessun contenuto privato ancora — niente contro cui verificare
@@ -1263,12 +1426,8 @@ async function openRegistry(tokenId) {
   // dall'evento RegistryMinted di questo specifico tokenId (filtro sul
   // primo parametro indicizzato, che e' proprio il tokenId).
   try {
-    const mintEvents = await queryFilterChunked(
-      state.contractReadOnly,
-      state.contractReadOnly.filters.RegistryMinted(tokenId),
-      CONFIG.DEPLOY_BLOCK
-    );
-    state.registryLabel = mintEvents[0]?.args?.label || null;
+    const minted = (await mintedEvents()).find(ev => ev.args.tokenId.toLowerCase() === tokenId.toLowerCase());
+    state.registryLabel = minted?.args?.label || null;
   } catch {
     state.registryLabel = null;
   }
@@ -1303,11 +1462,7 @@ async function renderRegistrySelector(forceList = false) {
   // anche quando gli eventi esistono davvero. Filtro solo per topic0
   // (RegistryMinted in generale, quello funziona sempre) e seleziono il
   // proprietario giusto qui, in JavaScript.
-  const allEvents = await queryFilterChunked(
-    state.contractReadOnly,
-    state.contractReadOnly.filters.RegistryMinted(),
-    CONFIG.DEPLOY_BLOCK
-  );
+  const allEvents = await mintedEvents();
   const events = allEvents.filter(
     ev => ev.args.owner.toLowerCase() === state.visitorAccount.toLowerCase()
   );
@@ -1385,6 +1540,7 @@ async function renderRegistrySelector(forceList = false) {
         btn.textContent = t("txInProgress");
         status.textContent = t("txPendingConfirmation");
         const receipt = await tx.wait();
+        invalidateEvents(MINTED_EVENTS_KEY, receipt?.blockNumber); // il nuovo registro deve comparire subito
         status.textContent = t("registryMintedOpening");
         const minted = receipt.logs
           .map(l => { try { return state.contract.interface.parseLog(l); } catch { return null; } })
@@ -1619,8 +1775,7 @@ function wireSchemaSetup() {
 // FORNITORI — lettura via eventi (getLogs), non via storage
 // =======================================================================
 async function renderSuppliers() {
-  const filter = state.contractReadOnly.filters.SupplierAdded(state.tokenId);
-  const events = await queryFilterChunked(state.contractReadOnly, filter, CONFIG.DEPLOY_BLOCK);
+  const events = (await registryEvents(state.tokenId)).suppliers;
 
   const container = $("suppliers-list");
   if (!container) {
@@ -1887,8 +2042,7 @@ function renderSupplierChart(supplierId, resolved) {
 }
 
 async function renderEvaluationsForSupplier(supplierId) {
-  const filter = state.contractReadOnly.filters.EvaluationAdded(state.tokenId, supplierId);
-  const events = await queryFilterChunked(state.contractReadOnly, filter, CONFIG.DEPLOY_BLOCK);
+  const events = (await registryEvents(state.tokenId)).evaluationsOf(supplierId);
   const container = $(`evaluations-${supplierId}`);
   if (!container) return;
 
@@ -1922,8 +2076,7 @@ async function renderEvaluationsForSupplier(supplierId) {
 
     let blockTimestampMs = null;
     try {
-      const block = await ev.getBlock();
-      blockTimestampMs = Number(block.timestamp) * 1000;
+      blockTimestampMs = await getBlockTimestampMs(ev.blockHash);
     } catch { /* resta null, va bene */ }
 
     // Chiave di ordinamento: la data di riferimento se la conosciamo (in
@@ -1965,9 +2118,16 @@ function renderEvaluationDetail(supplierId, r) {
   if (!el) return;
 
   if (r.locked && !state.isOwner) {
-    // Visitatore (audit U15): non conosce il codice del proprietario,
-    // inutile proporgli uno sblocco che non potra' mai riuscire.
-    el.innerHTML = `<span class="muted" style="font-size:12px;">${t("privateContent")}</span>`;
+    // Visitatore (audit U15): di norma non conosce il codice, quindi il
+    // messaggio principale e' "contenuto riservato". Ma la chiave dipende
+    // dal codice e dal registro, NON da chi e' collegato: un collaboratore
+    // con un altro Universal Profile che conosce il codice puo' leggere i
+    // dati privati — per lui resta un pulsante secondario.
+    el.innerHTML = `<span class="muted" style="font-size:12px;">${t("privateContent")}</span>
+      <button class="btn btn-ghost" style="padding:2px 8px; font-size:11px; margin-left:6px;">${t("haveCodeBtn")}</button>`;
+    el.querySelector("button").addEventListener("click", () => {
+      openPinModal(() => renderEvaluationsForSupplier(supplierId));
+    });
     return;
   }
 
@@ -2184,7 +2344,8 @@ async function submitSupplier() {
     const tx = await state.contract.addSupplier(state.tokenId, nameHash, nameUri, isPublic);
     btn.textContent = t("txInProgress");
     status.textContent = t("txPendingConfirmation");
-    await tx.wait();
+    const receipt = await tx.wait();
+    invalidateEvents(registryEventsKey(state.tokenId), receipt?.blockNumber); // il nuovo fornitore deve comparire subito
 
     $("supplier-modal").classList.remove("open");
     $("supplier-name").value = "";
@@ -2210,11 +2371,7 @@ let currentSupplierName = "";
 // chiaro o gia' decifrate) possono contribuire; se l'ultima e' ancora
 // bloccata, semplicemente non si mostra nulla (nessun errore).
 async function fetchLatestCriteriaValues(supplierId) {
-  const events = await queryFilterChunked(
-    state.contractReadOnly,
-    state.contractReadOnly.filters.EvaluationAdded(state.tokenId, supplierId),
-    CONFIG.DEPLOY_BLOCK
-  );
+  const events = (await registryEvents(state.tokenId)).evaluationsOf(supplierId);
   let best = null;
   let bestTime = -Infinity;
 
@@ -2432,7 +2589,8 @@ async function confirmEvaluation() {
     );
     btn.textContent = t("txInProgress");
     status.textContent = t("txPendingConfirmation");
-    await tx.wait();
+    const receipt = await tx.wait();
+    invalidateEvents(registryEventsKey(state.tokenId), receipt?.blockNumber); // la nuova valutazione deve comparire subito
 
     modal.classList.remove("open");
     $("evaluation-note").value = "";
