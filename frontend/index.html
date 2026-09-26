@@ -1810,9 +1810,11 @@ async function renderSuppliers() {
           ${isNamePublic ? t("loadingLabel") : t("supplierFallbackName", { id: supplierId })}
         </strong>
       </div>
-      ${state.isOwner && state.isRevoked
-        ? `<div class="muted" style="font-size:12px; margin-top:10px;">${t("addEvaluationLocked")}</div>`
-        : `<button class="btn btn-ghost" data-supplier-id="${supplierId}" style="margin-top:10px;">${t("addEvaluationBtn")}</button>`}
+      ${!state.isOwner
+        ? "" /* solo il proprietario scrive: il codice del registro serve a leggere, non a scrivere (audit U18) */
+        : state.isRevoked
+          ? `<div class="muted" style="font-size:12px; margin-top:10px;">${t("addEvaluationLocked")}</div>`
+          : `<button class="btn btn-ghost" data-supplier-id="${supplierId}" style="margin-top:10px;">${t("addEvaluationBtn")}</button>`}
       <div class="evaluations" id="evaluations-${supplierId}" style="margin-top:12px;"></div>
     `;
     container.appendChild(card);
@@ -2390,6 +2392,7 @@ async function fetchLatestCriteriaValues(supplierId) {
 }
 
 async function openEvaluationModal(supplierId) {
+  if (!state.isOwner) return; // difensivo (audit U18): solo il proprietario puo' scrivere
   // Difensivo: il contratto NON impedisce addEvaluation a tier zero, quindi
   // il blocco e' solo qui. Ricontrolliamo di persona (non ci fidiamo solo
   // del bottone nascosto in renderSuppliers, che potrebbe essere rimasto
