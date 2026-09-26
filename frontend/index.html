@@ -977,6 +977,23 @@ async function uploadToIPFS(bytes) {
 // cifratura AES-GCM rifiuta gia' da sola un file alterato.
 // =======================================================================
 const IPFS_TIMEOUT_MS = 8000;
+// Il gateway del nodo ha un limite di richieste per IP (Nginx limit_req):
+// oltre il limite risponde 429 (o 503, configurazione precedente). Non e'
+// un "file mancante": si aspetta e si riprova, invece di ripiegare subito
+// sul gateway esterno per un file che il nodo ha.
+const IPFS_RETRY_DELAYS_MS = [500, 1000, 2000];
+
+async function fetchGatewayWithRetry(url, options = {}) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, { ...options, signal: AbortSignal.timeout(IPFS_TIMEOUT_MS) });
+    const throttled = res.status === 429 || res.status === 503;
+    if (!throttled || attempt >= IPFS_RETRY_DELAYS_MS.length) return res;
+    res.body?.cancel().catch(() => {});
+    const retryAfter = Number(res.headers.get("retry-after"));
+    const delay = retryAfter > 0 ? Math.min(retryAfter * 1000, 5000) : IPFS_RETRY_DELAYS_MS[attempt];
+    await new Promise(resolve => setTimeout(resolve, delay));
+  }
+}
 const CID_RE = /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|b[a-z2-7]{50,})$/;
 
 async function fetchFromIPFS(uri, expectedHash) {
@@ -990,7 +1007,7 @@ async function fetchFromIPFS(uri, expectedHash) {
   for (const { base, trusted } of sources) {
     let bytes;
     try {
-      const res = await fetch(`${base}/ipfs/${cid}`, { signal: AbortSignal.timeout(IPFS_TIMEOUT_MS) });
+      const res = await fetchGatewayWithRetry(`${base}/ipfs/${cid}`);
       if (!res.ok) continue;
       bytes = new Uint8Array(await res.arrayBuffer());
     } catch {

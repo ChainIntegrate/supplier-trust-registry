@@ -237,6 +237,14 @@ deployato o dato già scritto on-chain), solo documentato
   rete). I file dei tempi di Pinata sono stati ripinnati sul nodo: il
   fallback LUKSO resta solo come rete di sicurezza.
 
+  Il gateway `ipfs.chainintegrate.it` ha un limite di richieste per IP
+  (Nginx `limit_req`, 10 r/s): oltre il limite risponde 429 (503 con la
+  configurazione precedente). Frontend e pannello admin non lo trattano
+  come "file mancante": aspettano e riprovano fino a 3 volte (0,5/1/2 s)
+  prima di passare al gateway LUKSO. Consigliato sul gateway:
+  `limit_req zone=ipfs_gateway burst=100 nodelay;` e `limit_req_status 429;`
+  (la pagina di un registro può caricare decine di file in pochi istanti).
+
   Procedura sul nodo (utente `ubuntu`, demone IPFS eseguito come `ipfs`):
   incollare i comandi copiati dal pannello in `~/repin.sh`, poi dentro una
   sessione `tmux` eseguire `sudo -u ipfs -H bash < ~/repin.sh`. Verifica:
