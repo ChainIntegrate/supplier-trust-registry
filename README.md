@@ -113,11 +113,27 @@ derivazione da firma wallet in fase di progettazione).
 **Backend** (`backend/`) — Express minimale, deployato su VPS con PM2
 (`supplier-trust-registry-backend`, porta 3011) dietro Nginx
 (`supplier-trust-registry.chainintegrate.it`, proxy su `/api/`, certificato
-Let's Encrypt). Due sole responsabilità: autenticazione "prova che controlli
+Let's Encrypt). Responsabilità: autenticazione "prova che controlli
 questa UP" via `isValidSignature` on-chain (stesso principio del SIWE
-documentato da LUKSO), e inoltro verso Pinata Files API v3. Non cifra mai
+documentato da LUKSO), upload verso l'API di scrittura del nodo IPFS
+proprio (`IPFS_API_URL`, porta 5001 raggiungibile solo dall'IP del VPS,
+come in traceability-registry) e proxy RPC in lettura. Non cifra mai
 nulla, non vede mai un PIN. Multer fissato a 2.x deliberatamente (la 1.x
 ha vulnerabilità note).
+
+**Lettura dei file** — il frontend legge direttamente dal gateway del nodo
+proprio `https://ipfs.chainintegrate.it` (serve solo i file pinnati da
+ChainIntegrate). Solo se il nodo non ha il file, fallback sul gateway
+LUKSO `https://api.universalprofile.cloud`: serve per i file caricati
+quando gli upload passavano ancora da Pinata. Dal fallback, i contenuti
+pubblici vengono accettati solo se corrispondono all'hash on-chain; quelli
+privati sono già protetti dalla cifratura AES-GCM.
+
+**Librerie e font** — serviti dal dominio stesso sotto `/shared/`, dal repo
+[`ChainIntegrate/shared-assets`](https://github.com/ChainIntegrate/shared-assets)
+clonato in `/var/www/shared-assets` e incluso nel blocco Nginx del sito
+(`include /var/www/shared-assets/nginx/shared-assets.conf;`). Nessuna
+richiesta a Google Fonts, esm.sh o altri CDN.
 
 ### Lezioni dal primo test dal vivo
 
@@ -203,8 +219,12 @@ deployato o dato già scritto on-chain), solo documentato
 - ✅ **P3 — Robustezza del codice segreto.** Nessun vincolo tecnico imposto
   (scelta deliberata); il testo di creazione del codice e "Come funziona"
   suggeriscono una frase di qualche parola invece di una parola sola.
-- ⏳ **P4 — Risorse di terze parti caricate dal browser** (font, librerie,
-  gateway di lettura): trasferimento di dati dei visitatori a terzi.
+- ✅ **P4 — Risorse di terze parti caricate dal browser.** Font (Google
+  Fonts) e librerie (esm.sh) ora serviti dal nostro dominio tramite
+  `shared-assets`; lettura dei file dal nodo proprio invece che dal gateway
+  Pinata. Resta solo il fallback LUKSO, usato unicamente per i file non
+  presenti sul nodo (vecchi upload Pinata): ripinnarli sul nodo lo
+  renderebbe superfluo.
 - ✅ **P5 — Metadati sempre visibili anche per i dati privati** (esistenza,
   numero e date di fornitori/valutazioni, etichetta del registro, criteri):
   inevitabili per rendere lo storico verificabile, spiegati in "Come funziona".
@@ -217,11 +237,17 @@ deployato o dato già scritto on-chain), solo documentato
 
 - ⏳ **S1** — gestione degli allegati lato visitatore (priorità alta).
 - ⏳ **S2** — controllo di autorizzazione sull'upload da rafforzare.
-- ⏳ **S3** — configurazione infrastrutturale da spostare in `.env` e da
-  cifrare in transito.
+- ✅ **S3 (parte 1)** — indirizzo dell'API IPFS spostato da codice a `.env`
+  (`IPFS_API_URL`, come in traceability-registry). Resta nella cronologia
+  git: la protezione vera è il firewall del nodo.
+- ⏳ **S3 (parte 2)** — tratto VPS → nodo IPFS in chiaro: da valutare
+  TLS/tunnel (vale anche per traceability-registry). Non urgente: i
+  contenuti privati viaggiano già cifrati.
 - ⏳ **S4** — proxy RPC da restringere ai soli contratti del progetto.
 - ⏳ **S5** — gestione delle challenge di autenticazione (robustezza).
-- ⏳ **S6** — integrità delle librerie caricate da CDN (SRI/CSP).
+- ✅ **S6 (parte 1)** — nessuna libreria da CDN: ethers ed erc725.js da
+  `shared-assets`, versioni fissate e impronte in `SHA256SUMS`.
+- ⏳ **S6 (parte 2)** — Content-Security-Policy da aggiungere in Nginx.
 - 📌 **S7** — vincoli applicati solo lato interfaccia perché il contratto V3
   non li impone (già noto per `addEvaluation`); da riprendere solo in
   un'eventuale V4.
@@ -243,8 +269,8 @@ deployato o dato già scritto on-chain), solo documentato
   malformato in `admin.html`).
 - ✅ **U17** — "Come funziona" parlava di "media per criterio": il grafico
   mostra la media di ciascuna valutazione. Testo corretto.
-- ⏳ **D1** — `backend/.env.example` non allineato (riferimenti Pinata, RPC,
-  porta).
+- ✅ **D1** — `backend/.env.example` allineato: via Pinata, porta 3011,
+  contratto V3 mainnet, nuova variabile `IPFS_API_URL`.
 
 ---
 

@@ -5,9 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Supplier Trust Registry — ChainIntegrate</title>
 <link rel="icon" type="image/x-icon" href="favicon.ico" />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<!-- Font serviti dal nostro dominio (repo shared-assets), nessuna richiesta a Google -->
+<link rel="stylesheet" href="/shared/fonts/ibm-plex/plex.css" />
 
 <style>
   /* -----------------------------------------------------------------
@@ -373,7 +372,8 @@ const CONFIG = {
   REGISTRY_CONTRACT: "0xFa143308D85b81Ed57547049F4A7718c3117A064", // MAINNET V3, deployato e verificato
   DEPLOY_BLOCK: 8268392, // blocco di deploy della V3 mainnet — OBBLIGATORIO su ogni queryFilter
   KDF_ITERATIONS: 600000, // PBKDF2-HMAC-SHA256, raccomandazione OWASP 2023/2025
-  PINATA_GATEWAY: "peach-familiar-wombat-848.mypinata.cloud", // gateway dedicato dell'account ChainIntegrate
+  IPFS_GATEWAY: "https://ipfs.chainintegrate.it", // nodo proprio, sola lettura, solo file pinnati da noi
+  IPFS_FALLBACK_GATEWAY: "https://api.universalprofile.cloud", // gateway LUKSO, solo per i file non presenti sul nodo
 };
 
 // ABI curata (sottoinsieme reale, estratta dalla compilazione — vedi frontend/abi.subset.json,
@@ -381,15 +381,15 @@ const CONFIG = {
 const ABI = REGISTRY_ABI_JSON;
 
 // =======================================================================
-// LIBRERIE — solo ethers via esm.sh (stesso pattern gia' in uso per
-// erc725.js negli altri progetti ChainIntegrate: il bundle CommonJS su
-// jsDelivr non espone un global nel browser, esm.sh si'). Nessuna libreria
+// LIBRERIE — solo ethers, servita dal nostro dominio (/shared/, repo
+// ChainIntegrate/shared-assets, versione fissata e impronta verificabile):
+// nessun codice eseguito in questa pagina arriva da CDN esterni. Nessuna libreria
 // up-provider: questa e' una pagina normale, non un mini-app incorporato
 // nel Grid — l'estensione UP inietta window.lukso su qualunque pagina,
 // esattamente come window.ethereum di MetaMask, senza bisogno di alcun
 // iframe "genitore".
 // =======================================================================
-import { ethers } from "https://esm.sh/ethers@6.13.4";
+import { ethers } from "/shared/ethers/6.13.4/ethers.min.js";
 
 // =======================================================================
 // STATO GLOBALE
@@ -894,11 +894,6 @@ async function decryptJSON(bytes, key) {
 }
 
 // =======================================================================
-// IPFS / PINATA — placeholder: da collegare al backend proxy esistente
-// (stesso pattern "backend proxy" gia' documentato per gli altri progetti:
-//  la JWT Pinata resta lato server, mai nel frontend)
-// =======================================================================
-// =======================================================================
 // SESSIONE — challenge/firma/verifica stile SIWE contro il backend, prima
 // di ogni upload. Il token dura 30 minuti (vedi backend/auth.js): lo
 // riusiamo finche' e' valido, evitando di far firmare l'utente ad ogni
@@ -941,7 +936,7 @@ async function ensureSession() {
 }
 
 // =======================================================================
-// IPFS / PINATA — passa sempre dal backend con un token di sessione
+// UPLOAD IPFS — passa sempre dal backend con un token di sessione
 // valido. Il backend non vede mai il PIN ne' la chiave, solo byte gia'
 // pronti (cifrati o pubblici) piu' la prova che la UP proprietaria ha
 // autorizzato questa sessione.
@@ -971,11 +966,43 @@ async function uploadToIPFS(bytes) {
   return `ipfs://${cid}`;
 }
 
-async function fetchFromIPFS(uri) {
-  const cid = uri.replace("ipfs://", "");
-  const res = await fetch(`https://${CONFIG.PINATA_GATEWAY}/ipfs/${cid}`);
-  if (!res.ok) throw new Error(t("errReadFailed"));
-  return new Uint8Array(await res.arrayBuffer());
+// =======================================================================
+// LETTURA FILE IPFS — prima dal nodo ChainIntegrate (ipfs.chainintegrate.it,
+// serve solo i file pinnati da noi), poi, solo se il nodo non ha il file,
+// dal gateway pubblico LUKSO. Il fallback serve per i file caricati quando
+// gli upload passavano ancora da Pinata e non ripinnati sul nodo.
+// Il gateway LUKSO e' un servizio esterno: se il chiamante conosce l'hash
+// on-chain del contenuto (dati pubblici), il file ricevuto da li' viene
+// scartato se non corrisponde. I dati privati non ne hanno bisogno: la
+// cifratura AES-GCM rifiuta gia' da sola un file alterato.
+// =======================================================================
+const IPFS_TIMEOUT_MS = 8000;
+const CID_RE = /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|b[a-z2-7]{50,})$/;
+
+async function fetchFromIPFS(uri, expectedHash) {
+  const cid = String(uri ?? "").replace(/^ipfs:\/\//, "");
+  if (!CID_RE.test(cid)) throw new Error(t("errReadFailed"));
+
+  const sources = [
+    { base: CONFIG.IPFS_GATEWAY, trusted: true },
+    { base: CONFIG.IPFS_FALLBACK_GATEWAY, trusted: false },
+  ];
+  for (const { base, trusted } of sources) {
+    let bytes;
+    try {
+      const res = await fetch(`${base}/ipfs/${cid}`, { signal: AbortSignal.timeout(IPFS_TIMEOUT_MS) });
+      if (!res.ok) continue;
+      bytes = new Uint8Array(await res.arrayBuffer());
+    } catch {
+      continue; // timeout o rete: prova la fonte successiva
+    }
+    if (!trusted && expectedHash && ethers.keccak256(bytes) !== String(expectedHash).toLowerCase()) {
+      console.warn("Contenuto dal gateway di fallback non corrispondente all'hash on-chain, scartato:", cid);
+      continue;
+    }
+    return bytes;
+  }
+  throw new Error(t("errReadFailed"));
 }
 
 // =======================================================================
@@ -1407,9 +1434,9 @@ async function loadListRegistryImage(tokenId) {
   const box = $(`list-image-${tokenId}`);
   if (!box) return;
   try {
-    const [uri] = await state.contractReadOnly.getRegistryImage(tokenId);
+    const [uri, hash] = await state.contractReadOnly.getRegistryImage(tokenId);
     if (!uri) return;
-    const bytes = await fetchFromIPFS(uri);
+    const bytes = await fetchFromIPFS(uri, hash);
     const blob = new Blob([bytes]);
     const blobUrl = URL.createObjectURL(blob);
     box.innerHTML = `<img src="${blobUrl}" style="width:100%; height:100%; object-fit:cover;" />`;
@@ -1422,9 +1449,9 @@ async function loadRegistryImage() {
   const box = $("registry-image-box");
   if (!box) return;
   try {
-    const [uri] = await state.contractReadOnly.getRegistryImage(state.tokenId);
+    const [uri, hash] = await state.contractReadOnly.getRegistryImage(state.tokenId);
     if (!uri) return; // resta l'iniziale gia' disegnata come segnaposto
-    const bytes = await fetchFromIPFS(uri);
+    const bytes = await fetchFromIPFS(uri, hash);
     const blob = new Blob([bytes]);
     const blobUrl = URL.createObjectURL(blob);
     box.innerHTML = `<img src="${blobUrl}" style="width:100%; height:100%; object-fit:cover;" />`;
@@ -1571,7 +1598,7 @@ async function resolveSupplierName(supplierId, nameHash, nameUri, isNamePublic) 
   const elRepeat = $(`supplier-name-repeat-${supplierId}`);
   try {
     if (isNamePublic) {
-      const bytes = await fetchFromIPFS(nameUri);
+      const bytes = await fetchFromIPFS(nameUri, nameHash);
       const { name } = JSON.parse(new TextDecoder().decode(bytes));
       el.textContent = name;
       elRepeat.textContent = name;
@@ -1800,7 +1827,7 @@ async function renderEvaluationsForSupplier(supplierId) {
 
     if (!locked) {
       try {
-        const bytes = await fetchFromIPFS(uri);
+        const bytes = await fetchFromIPFS(uri, isPublic ? contentHash : undefined);
         payload = isPublic
           ? JSON.parse(new TextDecoder().decode(bytes))
           : await decryptJSON(bytes, state.cryptoKey);
@@ -1886,7 +1913,7 @@ function renderEvaluationDetail(supplierId, r) {
       btn.textContent = t("downloading");
       btn.disabled = true;
       try {
-        const docBytes = await fetchFromIPFS(payload.document.uri);
+        const docBytes = await fetchFromIPFS(payload.document.uri, r.isPublic ? payload.document.hash : undefined);
         const finalBytes = r.isPublic ? docBytes : await decryptBytes(docBytes, state.cryptoKey);
         const blob = new Blob([finalBytes], { type: payload.document.type || "application/octet-stream" });
         const blobUrl = URL.createObjectURL(blob);
@@ -2048,10 +2075,10 @@ async function fetchLatestCriteriaValues(supplierId) {
   let bestTime = -Infinity;
 
   for (const ev of events) {
-    const { isPublic, uri } = ev.args;
+    const { isPublic, uri, contentHash } = ev.args;
     if (!isPublic && !state.cryptoKey) continue;
     try {
-      const bytes = await fetchFromIPFS(uri);
+      const bytes = await fetchFromIPFS(uri, isPublic ? contentHash : undefined);
       const payload = isPublic ? JSON.parse(new TextDecoder().decode(bytes)) : await decryptJSON(bytes, state.cryptoKey);
       if (!payload.criteri) continue;
       const time = payload.data ? new Date(payload.data + "T00:00:00").getTime() : 0;

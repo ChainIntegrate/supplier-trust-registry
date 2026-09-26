@@ -5,9 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Admin — Supplier Trust Registry</title>
 <link rel="icon" type="image/x-icon" href="favicon.ico" />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<!-- Font serviti dal nostro dominio (repo shared-assets), nessuna richiesta a Google -->
+<link rel="stylesheet" href="/shared/fonts/ibm-plex/plex.css" />
 
 <style>
   /* Stessi token del sito pubblico (index.html) — questo e' un pannello
@@ -113,7 +112,7 @@
 window.REGISTRY_ABI_JSON = [{"inputs": [], "name": "ERC725Y_DataKeysValuesEmptyArray", "type": "error"}, {"inputs": [], "name": "ERC725Y_DataKeysValuesLengthMismatch", "type": "error"}, {"inputs": [], "name": "ERC725Y_MsgValueDisallowed", "type": "error"}, {"inputs": [{"internalType": "bytes32", "name": "tokenId", "type": "bytes32"}, {"internalType": "uint256", "name": "supplierId", "type": "uint256"}, {"internalType": "uint256", "name": "evaluationId", "type": "uint256"}], "name": "EvaluationDoesNotExist", "type": "error"}, {"inputs": [{"internalType": "address", "name": "account", "type": "address"}], "name": "ImageCustomizationNotAllowed", "type": "error"}, {"inputs": [{"internalType": "bytes", "name": "storedData", "type": "bytes"}], "name": "InvalidExtensionAddress", "type": "error"}, {"inputs": [{"internalType": "bytes", "name": "data", "type": "bytes"}], "name": "InvalidFunctionSelector", "type": "error"}, {"inputs": [], "name": "LSP4TokenNameNotEditable", "type": "error"}, {"inputs": [], "name": "LSP4TokenSymbolNotEditable", "type": "error"}, {"inputs": [], "name": "LSP4TokenTypeNotEditable", "type": "error"}, {"inputs": [{"internalType": "uint256", "name": "callIndex", "type": "uint256"}], "name": "LSP8BatchCallFailed", "type": "error"}, {"inputs": [], "name": "LSP8CannotSendToAddressZero", "type": "error"}, {"inputs": [], "name": "LSP8CannotUseAddressZeroAsOperator", "type": "error"}, {"inputs": [], "name": "LSP8InvalidTransferBatch", "type": "error"}, {"inputs": [{"internalType": "bytes32", "name": "tokenId", "type": "bytes32"}], "name": "LSP8NonExistentTokenId", "type": "error"}, {"inputs": [{"internalType": "address", "name": "operator", "type": "address"}, {"internalType": "bytes32", "name": "tokenId", "type": "bytes32"}], "name": "LSP8NonExistingOperator", "type": "error"}, {"inputs": [{"internalType": "bytes32", "name": "tokenId", "type": "bytes32"}, {"internalType": "address", "name": "caller", "type": "address"}], "name": "LSP8NotTokenOperator", "type": "error"}, {"inputs": [{"internalType": "address", "name": "tokenOwner", "type": "address"}, {"internalType": "bytes32", "name": "tokenId", "type": "bytes32"}, {"internalType": "address", "name": "caller", "type": "address"}], "name": "LSP8NotTokenOwner", "type": "error"}, {"inputs": [{"internalType": "address", "name": "tokenReceiver", "type": "address"}], "name": "LSP8NotifyTokenReceiverContractMissingLSP1Interface", "type": "error"}, {"inputs": [{"internalType": "address", "name": "tokenReceiver", "type": "address"}], "name": "LSP8NotifyTokenReceiverIsEOA", "type": "error"}, {"inputs": [{"internalType": "address", "name": "operator", "type": "address"}, {"internalType": "bytes32", "name": "tokenId", "type": "bytes32"}], "name": "LSP8OperatorAlreadyAuthorized", "type": "error"}, {"inputs": [{"internalType": "address", "name": "caller", "type": "address"}, {"internalType": "address", "name": "tokenOwner", "type": "address"}, {"internalType": "bytes32", "name": "tokenId", "type": "bytes32"}], "name": "LSP8RevokeOperatorNotAuthorized", "type": "error"}, {"inputs": [], "name": "LSP8TokenContractCannotHoldValue", "type": "error"}, {"inputs": [{"internalType": "bytes32", "name": "tokenId", "type": "bytes32"}], "name": "LSP8TokenIdAlreadyMinted", "type": "error"}, {"inputs": [], "name": "LSP8TokenIdFormatNotEditable", "type": "error"}, {"inputs": [], "name": "LSP8TokenIdsDataEmptyArray", "type": "error"}, {"inputs": [], "name": "LSP8TokenIdsDataLengthMismatch", "type": "error"}, {"inputs": [], "name": "LSP8TokenOwnerCannotBeOperator", "type": "error"}, {"inputs": [{"internalType": "bytes32", "name": "tokenId", "type": "bytes32"}, {"internalType": "address", "name": "oldOwner", "type": "address"}, {"internalType": "address", "name": "newOwner", "type": "address"}], "name": "LSP8TokenOwnerChanged", "type": "error"}, {"inputs": [{"internalType": "bytes4", "name": "functionSelector", "type": "bytes4"}], "name": "NoExtensionFoundForFunctionSelector", "type": "error"}, {"inputs": [{"internalType": "bytes32", "name": "oldTokenId", "type": "bytes32"}], "name": "NoPendingSuccessionProposal", "type": "error"}, {"inputs": [{"internalType": "bytes32", "name": "tokenId", "type": "bytes32"}, {"internalType": "address", "name": "caller", "type": "address"}], "name": "NotRegistryOwner", "type": "error"}, {"inputs": [], "name": "OwnableCannotSetZeroAddressAsOwner", "type": "error"}, {"inputs": [{"internalType": "bytes32", "name": "tokenId", "type": "bytes32"}, {"internalType": "uint256", "name": "limit", "type": "uint256"}], "name": "ParamLimitReached", "type": "error"}, {"inputs": [{"internalType": "bytes32", "name": "tokenId", "type": "bytes32"}], "name": "RegistryDoesNotExist", "type": "error"}, {"inputs": [{"internalType": "address", "name": "account", "type": "address"}, {"internalType": "uint256", "name": "limit", "type": "uint256"}], "name": "RegistryLimitReached", "type": "error"}, {"inputs": [], "name": "RegistryNotTransferable", "type": "error"}, {"inputs": [{"internalType": "bytes32", "name": "tokenId", "type": "bytes32"}, {"internalType": "uint256", "name": "version", "type": "uint256"}], "name": "SchemaVersionDoesNotExist", "type": "error"}, {"inputs": [{"internalType": "address", "name": "account", "type": "address"}], "name": "SelectiveDisclosureNotAllowed", "type": "error"}, {"inputs": [{"internalType": "bytes32", "name": "newTokenId", "type": "bytes32"}], "name": "SuccessorAlreadySet", "type": "error"}, {"inputs": [{"internalType": "bytes32", "name": "tokenId", "type": "bytes32"}, {"internalType": "uint256", "name": "supplierId", "type": "uint256"}], "name": "SupplierDoesNotExist", "type": "error"}, {"inputs": [{"internalType": "bytes32", "name": "tokenId", "type": "bytes32"}, {"internalType": "uint256", "name": "limit", "type": "uint256"}], "name": "SupplierLimitReached", "type": "error"}, {"anonymous": false, "inputs": [{"indexed": true, "internalType": "bytes32", "name": "dataKey", "type": "bytes32"}, {"indexed": false, "internalType": "bytes", "name": "dataValue", "type": "bytes"}], "name": "DataChanged", "type": "event"}, {"anonymous": false, "inputs": [{"indexed": true, "internalType": "address", "name": "membershipContract", "type": "address"}], "name": "MembershipContractAdded", "type": "event"}, {"anonymous": false, "inputs": [{"indexed": true, "internalType": "address", "name": "membershipContract", "type": "address"}], "name": "MembershipContractRemoved", "type": "event"}, {"anonymous": false, "inputs": [{"indexed": true, "internalType": "bytes32", "name": "tokenId", "type": "bytes32"}, {"indexed": true, "internalType": "address", "name": "owner", "type": "address"}, {"indexed": false, "internalType": "uint256", "name": "index", "type": "uint256"}, {"indexed": false, "internalType": "string", "name": "label", "type": "string"}], "name": "RegistryMinted", "type": "event"}, {"anonymous": false, "inputs": [{"indexed": true, "internalType": "address", "name": "membershipContract", "type": "address"}, {"indexed": true, "internalType": "uint8", "name": "tier", "type": "uint8"}, {"indexed": false, "internalType": "uint256", "name": "maxSuppliers", "type": "uint256"}, {"indexed": false, "internalType": "uint256", "name": "maxParams", "type": "uint256"}, {"indexed": false, "internalType": "bool", "name": "canDiscloseSelectively", "type": "bool"}, {"indexed": false, "internalType": "uint256", "name": "maxRegistries", "type": "uint256"}, {"indexed": false, "internalType": "bool", "name": "canCustomizeImage", "type": "bool"}], "name": "TierLimitsSet", "type": "event"}, {"inputs": [{"internalType": "address", "name": "membershipContract", "type": "address"}], "name": "addMembershipContract", "outputs": [], "stateMutability": "nonpayable", "type": "function"}, {"inputs": [{"internalType": "bytes32", "name": "dataKey", "type": "bytes32"}], "name": "getData", "outputs": [{"internalType": "bytes", "name": "dataValue", "type": "bytes"}], "stateMutability": "view", "type": "function"}, {"inputs": [{"internalType": "bytes32", "name": "tokenId", "type": "bytes32"}, {"internalType": "bytes32", "name": "dataKey", "type": "bytes32"}], "name": "getDataForTokenId", "outputs": [{"internalType": "bytes", "name": "dataValue", "type": "bytes"}], "stateMutability": "view", "type": "function"}, {"inputs": [{"internalType": "bytes32", "name": "tokenId", "type": "bytes32"}], "name": "getRegistryImage", "outputs": [{"internalType": "string", "name": "uri", "type": "string"}, {"internalType": "bytes32", "name": "hash", "type": "bytes32"}], "stateMutability": "view", "type": "function"}, {"inputs": [{"internalType": "address", "name": "", "type": "address"}], "name": "isAcceptedMembershipContract", "outputs": [{"internalType": "bool", "name": "", "type": "bool"}], "stateMutability": "view", "type": "function"}, {"inputs": [], "name": "owner", "outputs": [{"internalType": "address", "name": "", "type": "address"}], "stateMutability": "view", "type": "function"}, {"inputs": [{"internalType": "address", "name": "membershipContract", "type": "address"}], "name": "removeMembershipContract", "outputs": [], "stateMutability": "nonpayable", "type": "function"}, {"inputs": [{"internalType": "bytes32", "name": "dataKey", "type": "bytes32"}, {"internalType": "bytes", "name": "dataValue", "type": "bytes"}], "name": "setData", "outputs": [], "stateMutability": "payable", "type": "function"}, {"inputs": [{"internalType": "bytes32", "name": "tokenId", "type": "bytes32"}, {"internalType": "bytes32", "name": "dataKey", "type": "bytes32"}, {"internalType": "bytes", "name": "dataValue", "type": "bytes"}], "name": "setDataForTokenId", "outputs": [], "stateMutability": "nonpayable", "type": "function"}, {"inputs": [{"internalType": "address", "name": "membershipContract", "type": "address"}, {"internalType": "uint8", "name": "tier", "type": "uint8"}, {"internalType": "uint256", "name": "maxSuppliers", "type": "uint256"}, {"internalType": "uint256", "name": "maxParams", "type": "uint256"}, {"internalType": "bool", "name": "canDiscloseSelectively", "type": "bool"}, {"internalType": "uint256", "name": "maxRegistries", "type": "uint256"}, {"internalType": "bool", "name": "canCustomizeImage", "type": "bool"}], "name": "setTierLimits", "outputs": [], "stateMutability": "nonpayable", "type": "function"}, {"inputs": [{"internalType": "address", "name": "", "type": "address"}, {"internalType": "uint8", "name": "", "type": "uint8"}], "name": "tierLimits", "outputs": [{"internalType": "uint256", "name": "maxSuppliers", "type": "uint256"}, {"internalType": "uint256", "name": "maxParams", "type": "uint256"}, {"internalType": "bool", "name": "canDiscloseSelectively", "type": "bool"}, {"internalType": "uint256", "name": "maxRegistries", "type": "uint256"}, {"internalType": "bool", "name": "canCustomizeImage", "type": "bool"}, {"internalType": "bool", "name": "configured", "type": "bool"}], "stateMutability": "view", "type": "function"}, {"inputs": [{"internalType": "bytes32", "name": "tokenId", "type": "bytes32"}], "name": "tokenOwnerOf", "outputs": [{"internalType": "address", "name": "", "type": "address"}], "stateMutability": "view", "type": "function"}];
 </script>
 <script type="module">
-import { ethers } from "https://esm.sh/ethers@6.13.4";
+import { ethers } from "/shared/ethers/6.13.4/ethers.min.js";
 
 const REGISTRY_ABI_JSON = window.REGISTRY_ABI_JSON;
 
@@ -129,7 +128,8 @@ const CONFIG = {
   REGISTRY_CONTRACT: "0xFa143308D85b81Ed57547049F4A7718c3117A064", // MAINNET V3
   DEPLOY_BLOCK: 8268392, // obbligatorio su ogni queryFilter, vedi nota in frontend/index.html
   RPC_URL: window.location.origin + "/api/rpc", // proxy del backend verso il nodo proprio
-  PINATA_GATEWAY: "peach-familiar-wombat-848.mypinata.cloud",
+  IPFS_GATEWAY: "https://ipfs.chainintegrate.it", // nodo proprio, solo file pinnati da noi
+  IPFS_FALLBACK_GATEWAY: "https://api.universalprofile.cloud", // gateway LUKSO, vedi fetchFromIPFS in index.html
 };
 
 const ABI = REGISTRY_ABI_JSON;
@@ -240,11 +240,34 @@ async function uploadToIPFS(bytes) {
   return `ipfs://${cid}`;
 }
 
-async function fetchFromIPFS(uri) {
-  const cid = uri.replace("ipfs://", "");
-  const res = await fetch(`https://${CONFIG.PINATA_GATEWAY}/ipfs/${cid}`);
-  if (!res.ok) throw new Error("IPFS read failed");
-  return new Uint8Array(await res.arrayBuffer());
+// Stessa logica di frontend/index.html (vedi commento li').
+const IPFS_TIMEOUT_MS = 8000;
+const CID_RE = /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|b[a-z2-7]{50,})$/;
+
+async function fetchFromIPFS(uri, expectedHash) {
+  const cid = String(uri ?? "").replace(/^ipfs:\/\//, "");
+  if (!CID_RE.test(cid)) throw new Error("IPFS read failed");
+
+  const sources = [
+    { base: CONFIG.IPFS_GATEWAY, trusted: true },
+    { base: CONFIG.IPFS_FALLBACK_GATEWAY, trusted: false },
+  ];
+  for (const { base, trusted } of sources) {
+    let bytes;
+    try {
+      const res = await fetch(`${base}/ipfs/${cid}`, { signal: AbortSignal.timeout(IPFS_TIMEOUT_MS) });
+      if (!res.ok) continue;
+      bytes = new Uint8Array(await res.arrayBuffer());
+    } catch {
+      continue; // timeout o rete: prova la fonte successiva
+    }
+    if (!trusted && expectedHash && ethers.keccak256(bytes) !== String(expectedHash).toLowerCase()) {
+      console.warn("Contenuto dal gateway di fallback non corrispondente all'hash on-chain, scartato:", cid);
+      continue;
+    }
+    return bytes;
+  }
+  throw new Error("IPFS read failed");
 }
 
 function explainRevert(e) {
@@ -630,7 +653,7 @@ async function renderCurrentMetadataStatus() {
   el.innerHTML = `<p class="muted">Last updated: <strong>${escapeHtml(when)}</strong> — loading current values…</p>`;
 
   try {
-    const { ERC725 } = await import("https://esm.sh/@erc725/erc725.js@0.28.2");
+    const { ERC725 } = await import("/shared/erc725.js/0.28.2/erc725.min.js");
     const schema = [{
       name: "LSP4Metadata",
       key: LSP4_METADATA_KEY,
@@ -759,7 +782,7 @@ function wireMetadataForm() {
       const metadataUri = await uploadToIPFS(metadataBytes);
 
       status.textContent = "Encoding VerifiableURI…";
-      const { ERC725 } = await import("https://esm.sh/@erc725/erc725.js@0.28.2");
+      const { ERC725 } = await import("/shared/erc725.js/0.28.2/erc725.min.js");
       const schema = [{
         name: "LSP4Metadata",
         key: LSP4_METADATA_KEY,
@@ -852,7 +875,7 @@ async function publishRegistryImageAsTokenImage(tokenId, label, btn) {
     // quelle vere del file, mentre una griglia di anteprime piu'
     // permissiva la mostra comunque — coerente con quello che si vede.
     btn.textContent = "Reading image dimensions…";
-    const imageBytes = await fetchFromIPFS(uri);
+    const imageBytes = await fetchFromIPFS(uri, hash);
     const { width, height } = await getImageDimensions(imageBytes);
 
     const metadataJson = {
@@ -876,7 +899,7 @@ async function publishRegistryImageAsTokenImage(tokenId, label, btn) {
     const metadataUri = await uploadToIPFS(metadataBytes);
 
     btn.textContent = "Encoding…";
-    const { ERC725 } = await import("https://esm.sh/@erc725/erc725.js@0.28.2");
+    const { ERC725 } = await import("/shared/erc725.js/0.28.2/erc725.min.js");
     const schema = [{
       name: "LSP4Metadata",
       key: LSP4_METADATA_KEY,
