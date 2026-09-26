@@ -9,7 +9,8 @@ in modo generico finché non vengono corretti; il dettaglio tecnico viene
 aggiunto insieme alla correzione.
 
 Legenda: ✅ corretto · ⏳ aperto · 📌 non correggibile (contratto già
-deployato o dato già scritto on-chain), solo documentato
+deployato o dato già scritto on-chain), solo documentato · ➖ segnalazione
+non confermata
 
 ## Metodo
 
@@ -148,17 +149,24 @@ deployato o dato già scritto on-chain), solo documentato
   l'estensione non è su LUKSO mainnet, la pagina si ferma con un messaggio
   chiaro e un pulsante che chiede all'estensione di cambiare rete (la
   pagina si ricarica da sola al cambio).
-- ⏳ **U4** — I nomi dei criteri vengono ricavati tagliando l'etichetta a
-  `" ("`: criteri con parentesi nel nome possono sovrascriversi.
-- ⏳ **U5** — Nota e interruttore pubblico/privato del modale valutazione
-  restano impostati passando da un fornitore all'altro.
-- ⏳ **U6** — La data proposta per una valutazione è calcolata in UTC (tra
-  mezzanotte e le 2 propone il giorno precedente).
-- ⏳ **U7** — Accettati data vuota e punteggi vuoti (letti come 0).
-- ⏳ **U8** — Un punteggio non numerico in un dato salvato manda in errore
-  il grafico del fornitore.
-- ⏳ **U9** — Il "valore precedente" mostrato nel modale non passa da
-  `escapeHtml` (visibile solo al proprietario).
+- ✅ **U4** — I nomi dei criteri venivano ricavati tagliando l'etichetta a
+  `" ("`: "Tempi (consegna)" e "Tempi (risposta)" diventavano un unico
+  criterio "Tempi" e un punteggio andava perso (verificato). Ora i nomi
+  arrivano direttamente dallo schema.
+- ✅ **U5** — Nota, interruttore pubblico/privato e allegato restavano
+  impostati passando da un fornitore all'altro. Ora il modale si apre
+  sempre pulito.
+- ✅ **U6** — La data proposta era calcolata in UTC (alle 00:30 del 27/09
+  italiane proponeva il 26/09, verificato). Ora usa l'ora locale.
+- ✅ **U7** — La data vuota veniva accettata e un punteggio vuoto valeva 0
+  (salvato davvero quando lo 0 rientrava nella scala). Ora data e punteggi
+  sono obbligatori.
+- ✅ **U8** — Un punteggio non numerico in un dato salvato mandava in errore
+  il grafico e con lui l'intera lista delle valutazioni del fornitore
+  (verificato). Ora i valori non numerici vengono ignorati nei grafici.
+- ✅ **U9** — Il "valore precedente" mostrato nel modale non passava da
+  `escapeHtml`: HTML presente in una valutazione veniva eseguito nella
+  pagina del proprietario (verificato). Ora è mostrato come testo.
 - ✅ **U10** — Errori di rete e rifiuto nel wallet lasciavano la pagina
   ferma senza messaggio. Ora accesso e caricamenti mostrano "Accesso
   annullato" o "Caricamento non riuscito" con un pulsante "Riprova", che
@@ -174,9 +182,12 @@ deployato o dato già scritto on-chain), solo documentato
   non è ancora disponibile nell'interfaccia.
 - ⏳ **U14** — Per consultare un registro pubblico serve comunque
   l'estensione; manca un pulsante "condividi link".
-- ⏳ **U15** — I visitatori vedono "Sblocca per vedere" su contenuti privati
-  che non potranno mai aprire.
-- ⏳ **U16** — `admin.html`: tag `</p` non chiuso (innocuo).
+- ✅ **U15** — I visitatori vedevano "Sblocca per vedere" su contenuti
+  privati che non potranno mai aprire. Ora vedono "Contenuto riservato al
+  proprietario del registro".
+- ➖ **U16** — Non confermato: il tag in `admin.html` è chiuso
+  correttamente. La segnalazione nasceva da un output troncato durante la
+  revisione.
 - ✅ **U17** — "Come funziona" parlava di "media per criterio": il grafico
   mostra la media di ciascuna valutazione. Testo corretto.
 - ✅ **D1** — `backend/.env.example` allineato: via Pinata, porta 3011,

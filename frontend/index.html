@@ -601,6 +601,8 @@ const I18N = {
     pleaseWait: "Attendere…",
     rangeError: '"{label}" deve essere tra {min} e {max} (hai messo {value}).',
     emptyValue: "un valore vuoto",
+    dateRequired: "Inserisci la data a cui si riferisce la valutazione.",
+    privateContent: "Contenuto riservato al proprietario del registro.",
 
     errRegistryAlreadyMinted: "Hai già un registro su questo profilo.",
     errNoRecognizedMembership: "Nessuna Membership attiva su questo profilo.",
@@ -763,6 +765,8 @@ const I18N = {
     pleaseWait: "Please wait…",
     rangeError: '"{label}" must be between {min} and {max} (you entered {value}).',
     emptyValue: "an empty value",
+    dateRequired: "Enter the date this evaluation refers to.",
+    privateContent: "Content reserved to the registry owner.",
 
     errRegistryAlreadyMinted: "You already have a registry on this profile.",
     errNoRecognizedMembership: "No active Membership on this profile.",
@@ -1835,9 +1839,16 @@ function renderSupplierChart(supplierId, resolved) {
   const container = $(`chart-${supplierId}`);
   if (!container) return;
 
+  // Solo punteggi numerici (audit U8): un valore non numerico in un dato
+  // salvato non deve far saltare tutto il grafico del fornitore.
+  const numericOnly = (criteri) => Object.fromEntries(
+    Object.entries(criteri).filter(([, v]) => typeof v === "number" && Number.isFinite(v))
+  );
   const points = resolved
-    .filter(r => r.payload && r.payload.criteri && r.payload.data)
-    .map(r => ({ date: r.payload.data, criteri: r.payload.criteri }))
+    .filter(r => r.payload && r.payload.criteri && typeof r.payload.criteri === "object" && r.payload.data
+      && !Number.isNaN(new Date(r.payload.data + "T00:00:00").getTime()))
+    .map(r => ({ date: r.payload.data, criteri: numericOnly(r.payload.criteri) }))
+    .filter(p => Object.keys(p.criteri).length > 0)
     .sort((a, b) => new Date(a.date) - new Date(b.date));
 
   if (points.length < 2) {
@@ -1952,6 +1963,13 @@ async function renderEvaluationsForSupplier(supplierId) {
 function renderEvaluationDetail(supplierId, r) {
   const el = $(`eval-detail-${supplierId}-${r.evaluationId}`);
   if (!el) return;
+
+  if (r.locked && !state.isOwner) {
+    // Visitatore (audit U15): non conosce il codice del proprietario,
+    // inutile proporgli uno sblocco che non potra' mai riuscire.
+    el.innerHTML = `<span class="muted" style="font-size:12px;">${t("privateContent")}</span>`;
+    return;
+  }
 
   if (r.locked) {
     el.innerHTML = `<button class="btn btn-ghost" style="padding:4px 10px; font-size:12px;">${t("unlockToSee")}</button>`;
@@ -2183,6 +2201,7 @@ async function submitSupplier() {
 // MODALE NUOVA VALUTAZIONE
 // =======================================================================
 let currentSupplierId = null;
+let currentParamNames = []; // nomi dei criteri presi dallo schema (audit U4), non dal testo dell'etichetta
 let currentSupplierName = "";
 
 // Valori dell'ULTIMA valutazione (per data di riferimento), per mostrarli
@@ -2243,19 +2262,30 @@ async function openEvaluationModal(supplierId) {
   $("evaluation-criteria-fields").innerHTML = paramNames.map((p, i) => `
     <label for="crit-${i}">${escapeHtml(p)} (${minValue}–${maxValue})${
       previousValues && p in previousValues
-        ? ` <span class="muted" style="font-weight:400;">${t("previousValueLabel", { value: previousValues[p] })}</span>`
+        ? ` <span class="muted" style="font-weight:400;">${t("previousValueLabel", { value: escapeHtml(previousValues[p]) })}</span>`
         : ""
     }</label>
     <input type="number" id="crit-${i}" min="${minValue}" max="${maxValue}" value="${minValue}" />
   `).join("");
 
+  currentParamNames = [...paramNames];
   $("evaluation-modal").dataset.schemaVersion = latestVersion.toString();
   $("evaluation-modal").dataset.paramCount = paramNames.length.toString();
   // Default a oggi, ma modificabile — serve proprio per poter registrare
   // valutazioni passate (es. importare uno storico), non solo quelle fatte
   // nel momento in cui si preme il pulsante.
-  $("evaluation-date").value = new Date().toISOString().slice(0, 10);
+  // Data LOCALE (audit U6): toISOString() e' in UTC e tra mezzanotte e le
+  // 2 italiane proponeva il giorno precedente.
+  const today = new Date();
+  $("evaluation-date").value = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")].join("-");
+  // Modale sempre pulito (audit U5): nota, pubblico/privato e allegato
+  // non devono passare da un fornitore all'altro.
   $("evaluation-document").value = "";
+  $("evaluation-note").value = "";
+  $("evaluation-public-toggle").checked = false;
+  $("evaluation-public-warning").style.display = "none";
+  $("evaluation-status").textContent = "";
+  pendingEvaluationPayload = null;
 
   // Allegato documentale: solo Gold. Riuso canDiscloseSelectively come
   // segnale "sei Gold" invece di introdurre un terzo concetto — e' lo
@@ -2292,11 +2322,17 @@ function showEvaluationReview() {
     return;
   }
 
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(evaluationDate)) {
+    $("evaluation-status").textContent = t("dateRequired");
+    return;
+  }
+
   const criteri = {};
   for (let i = 0; i < paramCount; i++) {
     const input = $(`crit-${i}`);
-    const label = $("evaluation-criteria-fields").children[i * 2].textContent.split(" (")[0].trim();
-    const value = Number(input.value);
+    const label = currentParamNames[i];
+    const raw = input.value.trim();
+    const value = raw === "" ? NaN : Number(raw); // campo vuoto = errore, non 0 (audit U7)
     const min = Number(input.min);
     const max = Number(input.max);
 
