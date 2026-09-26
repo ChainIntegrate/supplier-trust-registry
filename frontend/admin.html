@@ -1097,13 +1097,25 @@ async function includePrivateAttachments(tokenId, pin, statusEl) {
   return true;
 }
 
-async function headOk(base, cid) {
-  try {
-    const res = await fetch(`${base}/ipfs/${cid}`, { method: "HEAD", signal: AbortSignal.timeout(IPFS_TIMEOUT_MS) });
-    return res.ok;
-  } catch {
-    return false;
+// Controllo di presenza su un gateway. `cache: "no-store"`: il browser non
+// deve MAI rispondere con una risposta vecchia (es. il 404 di prima del
+// pin), la domanda va sempre fatta davvero al gateway. Se la richiesta
+// leggera HEAD non va a buon fine, riprova con un GET (letti solo gli
+// header, il corpo viene scartato) prima di dichiarare il file mancante.
+// Ritorna { ok, reason } — reason e' il codice HTTP o "timeout"/"network".
+async function probeGateway(base, cid) {
+  let reason = "network";
+  for (const method of ["HEAD", "GET"]) {
+    try {
+      const res = await fetch(`${base}/ipfs/${cid}`, { method, cache: "no-store", signal: AbortSignal.timeout(IPFS_TIMEOUT_MS) });
+      if (method === "GET") res.body?.cancel().catch(() => {});
+      if (res.ok) return { ok: true, reason: String(res.status) };
+      reason = "HTTP " + res.status;
+    } catch (e) {
+      reason = e?.name === "TimeoutError" ? "timeout" : "network";
+    }
   }
+  return { ok: false, reason };
 }
 
 async function checkRepinStatus(status) {
@@ -1113,9 +1125,13 @@ async function checkRepinStatus(status) {
   const worker = async () => {
     while (next < entries.length) {
       const [cid, what] = entries[next++];
-      const onNode = await headOk(CONFIG.IPFS_GATEWAY, cid);
-      const onFallback = onNode ? null : await headOk(CONFIG.IPFS_FALLBACK_GATEWAY, cid);
-      results.push({ cid, what: [...what], onNode, onFallback });
+      const node = await probeGateway(CONFIG.IPFS_GATEWAY, cid);
+      const fallback = node.ok ? null : await probeGateway(CONFIG.IPFS_FALLBACK_GATEWAY, cid);
+      results.push({
+        cid, what: [...what],
+        onNode: node.ok, nodeReason: node.reason,
+        onFallback: fallback ? fallback.ok : null, fallbackReason: fallback?.reason ?? null,
+      });
       status.textContent = `Checking the node… ${++done}/${entries.length}`;
     }
   };
@@ -1133,6 +1149,7 @@ function renderRepinResults(results) {
     <div class="list-item">
       <div class="mono" style="font-size:11px;">${r.cid}</div>
       <div class="muted" style="font-size:12px;">${r.what.map(escapeHtml).join("<br/>")}</div>
+      <div class="muted" style="font-size:11px;">node: ${escapeHtml(r.nodeReason)}${r.fallbackReason ? ` · LUKSO gateway: ${escapeHtml(r.fallbackReason)}` : ""}</div>
     </div>`).join("");
 
   out.innerHTML = `
