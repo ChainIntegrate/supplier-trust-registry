@@ -270,15 +270,30 @@ deployato o dato già scritto on-chain), solo documentato
   immagini PNG/JPEG/GIF/WebP riconosciuti, tutto il resto si scarica come
   `application/octet-stream` con nome ripulito. Vale anche per gli allegati
   già caricati.
-- ⏳ **S2** — controllo di autorizzazione sull'upload da rafforzare.
+- ✅ **S2 — Upload consentito a qualunque Universal Profile.** Bastava
+  firmare con una UP qualsiasi (gratuita da creare) per caricare e far
+  pinnare file sul nodo, anche via script. Ora `/api/ipfs/upload` accetta
+  solo chi ha almeno un Registro su questo contratto o è l'owner del
+  contratto (pannello admin), verificato on-chain (cache 5 min), e il
+  controllo avviene prima di ricevere il file.
 - ✅ **S3 (parte 1)** — indirizzo dell'API IPFS spostato da codice a `.env`
   (`IPFS_API_URL`, come in traceability-registry). Resta nella cronologia
   git: la protezione vera è il firewall del nodo.
 - ⏳ **S3 (parte 2)** — tratto VPS → nodo IPFS in chiaro: da valutare
   TLS/tunnel (vale anche per traceability-registry). Non urgente: i
   contenuti privati viaggiano già cifrati.
-- ⏳ **S4** — proxy RPC da restringere ai soli contratti del progetto.
-- ⏳ **S5** — gestione delle challenge di autenticazione (robustezza).
+- ✅ **S4 — Proxy RPC aperto a qualunque contratto.** `/api/rpc` ora
+  accetta `eth_call` ed `eth_getLogs` solo verso il contratto del registro
+  (più `RPC_EXTRA_ALLOWED_ADDRESSES` da `.env`, vuoto di default), e
+  `eth_getLogs` solo con indirizzo esplicito e al massimo 10.000 blocchi.
+- ✅ **S5 — Challenge di accesso sovrascrivibili.** Il server teneva una
+  sola challenge per indirizzo: chiunque poteva chiederne di continuo per
+  l'indirizzo di un altro e far fallire il suo accesso, e quelle mai usate
+  restavano in memoria. Ora le challenge non hanno stato per indirizzo: il
+  server consegna un `challengeToken` firmato (HMAC) che lega indirizzo,
+  nonce, scadenza (5 min) e impronta del messaggio; alla verifica il client
+  lo rimanda. Uso singolo tramite l'elenco dei nonce già usati, ripulito
+  alla scadenza.
 - ✅ **S6 (parte 1)** — nessuna libreria da CDN: ethers ed erc725.js da
   `shared-assets`, versioni fissate e impronte in `SHA256SUMS`.
 - ⏳ **S6 (parte 2)** — Content-Security-Policy da aggiungere in Nginx.

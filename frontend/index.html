@@ -914,7 +914,9 @@ async function ensureSession() {
   if (!challengeRes.ok) {
     throw new Error(t("errChallengeUnavailable"));
   }
-  const { message } = await challengeRes.json();
+  // challengeToken: prova firmata dal server che questa challenge l'ha emessa lui
+  // (nessuno stato lato server, vedi backend/auth.js) — va rimandato con la firma.
+  const { message, challengeToken } = await challengeRes.json();
 
   // Questo fa comparire la richiesta di firma nell'estensione/app UP.
   const signature = await state.signer.signMessage(message);
@@ -922,7 +924,7 @@ async function ensureSession() {
   const verifyRes = await fetch("/api/auth/verify", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ address, signature }),
+    body: JSON.stringify({ address, signature, message, challengeToken }),
   });
   if (!verifyRes.ok) {
     const body = await verifyRes.json().catch(() => ({}));
