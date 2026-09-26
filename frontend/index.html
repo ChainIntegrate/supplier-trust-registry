@@ -458,7 +458,19 @@ const LANG = primaryLang.toLowerCase().startsWith("it") ? "it" : "en";
 const I18N = {
   it: {
     pageTitle: "Supplier Trust Registry — ChainIntegrate",
-    connecting: "Connessione in corso…",
+    connecting: "Caricamento in corso…",
+    welcomeTitle: "Benvenuto nel Supplier Trust Registry",
+    welcomeDesc: "Accedi con il tuo Universal Profile per aprire i tuoi registri fornitori.",
+    welcomeDescRegistry: "Accedi con il tuo Universal Profile per consultare questo registro.",
+    wrongNetworkTitle: "Rete non corretta",
+    wrongNetworkDesc: "L'estensione Universal Profile è collegata a un'altra rete (ID {chainId}). Il registro funziona sulla rete principale LUKSO.",
+    switchNetworkBtn: "Passa alla rete LUKSO",
+    switchNetworkFailed: "Non è stato possibile cambiare rete automaticamente: selezionala dall'estensione Universal Profile e ricarica la pagina.",
+    connectRejectedTitle: "Accesso annullato",
+    connectRejectedDesc: "La richiesta è stata annullata nell'app Universal Profile. Puoi riprovare quando vuoi.",
+    loadFailedTitle: "Caricamento non riuscito",
+    loadFailedDesc: "Non è stato possibile caricare i dati. Controlla la connessione e riprova tra qualche istante.",
+    retryBtn: "Riprova",
     connectButton: "Accedi con Universal Profile",
     logoutBtn: "Esci",
     averagesLabel: "Media",
@@ -608,7 +620,19 @@ const I18N = {
   },
   en: {
     pageTitle: "Supplier Trust Registry — ChainIntegrate",
-    connecting: "Connecting…",
+    connecting: "Loading…",
+    welcomeTitle: "Welcome to the Supplier Trust Registry",
+    welcomeDesc: "Sign in with your Universal Profile to open your supplier registries.",
+    welcomeDescRegistry: "Sign in with your Universal Profile to view this registry.",
+    wrongNetworkTitle: "Wrong network",
+    wrongNetworkDesc: "The Universal Profile extension is connected to another network (ID {chainId}). The registry runs on the LUKSO main network.",
+    switchNetworkBtn: "Switch to the LUKSO network",
+    switchNetworkFailed: "The network could not be switched automatically: select it in the Universal Profile extension and reload the page.",
+    connectRejectedTitle: "Sign-in cancelled",
+    connectRejectedDesc: "The request was cancelled in the Universal Profile app. You can try again at any time.",
+    loadFailedTitle: "Loading failed",
+    loadFailedDesc: "The data could not be loaded. Check your connection and try again in a moment.",
+    retryBtn: "Try again",
     connectButton: "Sign in with Universal Profile",
     logoutBtn: "Sign out",
     averagesLabel: "Average",
@@ -1032,18 +1056,45 @@ async function fetchFromIPFS(uri, expectedHash) {
 // nell'URL (per condividere un link diretto), oppure, se assente, si
 // scoprono tutti i registri del visitatore e si mostra una lista.
 // =======================================================================
-async function connect() {
+async function connect(reopenTokenId = null) {
   if (!window.lukso) {
-    renderError(t("noExtension"));
+    renderWelcome(t("noExtension"), false);
     return;
   }
+  const btn = $("btn-connect");
+  btn.disabled = true;
+  renderError(t("connecting"));
+  try {
+    await connectAndOpen(reopenTokenId);
+  } catch (e) {
+    renderConnectError(e);
+  }
+}
 
+async function connectAndOpen(reopenTokenId = null) {
   state.ethersProvider = new ethers.BrowserProvider(window.lukso);
   const accounts = await state.ethersProvider.send("eth_requestAccounts", []);
   state.visitorAccount = accounts[0] || null;
 
   if (!state.visitorAccount) {
-    renderError(t("noAccount"));
+    renderConnectError(new Error(t("noAccount")));
+    return;
+  }
+
+  // Ricarica la pagina se l'utente cambia account o rete nell'estensione:
+  // registrato PRIMA del controllo di rete, cosi' dopo il cambio di rete
+  // (anche dal pulsante qui sotto) la pagina riparte da sola.
+  if (typeof window.lukso.on === "function") {
+    window.lukso.on("accountsChanged", () => window.location.reload());
+    window.lukso.on("chainChanged", () => window.location.reload());
+  }
+
+  // Audit U3: le letture passano dal nostro RPC (sempre mainnet), ma i
+  // salvataggi li firma l'estensione sulla SUA rete — su una rete diversa
+  // fallirebbero con errori incomprensibili. Meglio fermarsi subito.
+  const network = await state.ethersProvider.getNetwork();
+  if (Number(network.chainId) !== CONFIG.CHAIN_ID) {
+    renderWrongNetwork(Number(network.chainId));
     return;
   }
 
@@ -1055,20 +1106,19 @@ async function connect() {
   // limitata ("Receipt not available" su blocchi vecchi), fuori dal
   // nostro controllo. Solo le SCRITTURE (che richiedono la sua firma)
   // restano legate a window.lukso tramite state.signer/state.contract.
-  state.readOnlyProvider = new ethers.JsonRpcProvider(CONFIG.RPC_URL, undefined, { batchMaxCount: 1 });
+  // staticNetwork: la rete e' nota (LUKSO mainnet), niente riconoscimento
+  // automatico — se il nodo e' momentaneamente irraggiungibile, ethers
+  // altrimenti resta bloccato nel tentativo di rilevare la rete e anche
+  // "Riprova" continuerebbe a fallire (audit U10).
+  state.readOnlyProvider = new ethers.JsonRpcProvider(CONFIG.RPC_URL, CONFIG.CHAIN_ID, { batchMaxCount: 1, staticNetwork: true });
   state.contractReadOnly = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, ABI, state.readOnlyProvider);
 
   $("btn-connect").textContent = shortAddr(state.visitorAccount);
   $("btn-connect").disabled = true;
   $("btn-logout").style.display = "inline-block";
 
-  if (typeof window.lukso.on === "function") {
-    window.lukso.on("accountsChanged", () => window.location.reload());
-    window.lukso.on("chainChanged", () => window.location.reload());
-  }
-
   const params = new URLSearchParams(window.location.search);
-  const tokenIdParam = params.get("tokenId");
+  const tokenIdParam = reopenTokenId || params.get("tokenId");
 
   if (tokenIdParam && /^0x[0-9a-fA-F]{64}$/.test(tokenIdParam)) {
     await openRegistry(tokenIdParam);
@@ -1183,7 +1233,7 @@ async function renderUnlockGate(tokenId) {
     }
 
     state.cryptoKey = candidateKey;
-    await renderDashboard();
+    await runSafely(() => renderDashboard());
   });
 }
 
@@ -1257,7 +1307,11 @@ async function renderRegistrySelector(forceList = false) {
   const events = allEvents.filter(
     ev => ev.args.owner.toLowerCase() === state.visitorAccount.toLowerCase()
   );
-  const [, , , maxRegistries] = await state.contractReadOnly.getEffectiveLimits(state.visitorAccount);
+  // Number(): il contratto restituisce un BigInt, e 0n === 0 e' FALSO in
+  // JavaScript — senza conversione il caso "nessuna Membership" non veniva
+  // mai riconosciuto (audit U1).
+  const [, , , maxRegistriesRaw] = await state.contractReadOnly.getEffectiveLimits(state.visitorAccount);
+  const maxRegistries = Number(maxRegistriesRaw);
 
   // La scorciatoia "salta direttamente se ce n'e' solo uno" vale solo al
   // primo accesso (connect()) — non quando l'utente ha esplicitamente
@@ -1307,7 +1361,7 @@ async function renderRegistrySelector(forceList = false) {
   `;
 
   root.querySelectorAll(".open-registry-btn").forEach(btn => {
-    btn.addEventListener("click", () => openRegistry(btn.dataset.tokenId));
+    btn.addEventListener("click", () => runSafely(() => openRegistry(btn.dataset.tokenId)));
   });
 
   for (const ev of events) {
@@ -1432,7 +1486,7 @@ async function renderDashboard() {
   }
   $("btn-back-to-list").addEventListener("click", () => {
     state.cryptoKey = null; // si esce dal registro, la chiave non deve sopravvivere al cambio contesto
-    renderRegistrySelector(true);
+    runSafely(() => renderRegistrySelector(true));
   });
 
   loadRegistryImage();
@@ -2374,6 +2428,89 @@ function renderError(msg) {
   $("app-root").innerHTML = `<div class="empty-state">${msg}</div>`;
 }
 
+// Audit U2: all'apertura la pagina non restava piu' ferma su "Connessione
+// in corso…" in attesa di un clic. Se l'utente ha gia' autorizzato il sito
+// nell'estensione (eth_accounts non vuoto, richiesta silenziosa) si entra
+// direttamente; altrimenti una schermata di benvenuto con il pulsante.
+async function startup() {
+  if (!window.lukso) {
+    // l'estensione a volte inietta window.lukso un istante dopo il caricamento
+    await new Promise(resolve => setTimeout(resolve, 400));
+  }
+  if (!window.lukso) {
+    renderWelcome(t("noExtension"), false);
+    return;
+  }
+  let accounts = [];
+  try {
+    accounts = await Promise.race([
+      window.lukso.request({ method: "eth_accounts" }),
+      new Promise(resolve => setTimeout(() => resolve([]), 3000)),
+    ]);
+  } catch { /* nessuna autorizzazione: schermata di benvenuto */ }
+  if (Array.isArray(accounts) && accounts.length > 0) {
+    await connect();
+  } else {
+    const hasRegistryLink = /^0x[0-9a-fA-F]{64}$/.test(new URLSearchParams(window.location.search).get("tokenId") || "");
+    renderWelcome(hasRegistryLink ? t("welcomeDescRegistry") : t("welcomeDesc"), true);
+  }
+}
+
+function renderWelcome(message, showSignIn) {
+  $("app-root").innerHTML = `
+    <div class="empty-state">
+      <h3>${t("welcomeTitle")}</h3>
+      <p class="muted">${message}</p>
+      ${showSignIn ? `<button class="btn" id="welcome-connect" style="margin-top:8px;">${t("connectButton")}</button>` : ""}
+      <p class="muted" style="margin-top:16px;"><a href="how-it-works.html">${t("howItWorksLabel")}</a></p>
+    </div>`;
+  if (showSignIn) $("welcome-connect").addEventListener("click", () => connect());
+}
+
+function renderWrongNetwork(chainId) {
+  $("btn-connect").disabled = false;
+  $("app-root").innerHTML = `
+    <div class="empty-state">
+      <h3>${t("wrongNetworkTitle")}</h3>
+      <p class="muted">${t("wrongNetworkDesc", { chainId: escapeHtml(String(chainId)) })}</p>
+      <button class="btn" id="btn-switch-network" style="margin-top:8px;">${t("switchNetworkBtn")}</button>
+      <div id="switch-network-status" class="muted" style="margin-top:8px;"></div>
+    </div>`;
+  $("btn-switch-network").addEventListener("click", async () => {
+    try {
+      await window.lukso.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x" + CONFIG.CHAIN_ID.toString(16) }] });
+      // se l'estensione cambia rete, l'evento chainChanged ricarica la pagina
+    } catch {
+      $("switch-network-status").textContent = t("switchNetworkFailed");
+    }
+  });
+}
+
+// Audit U10: qualunque errore durante accesso o caricamento mostra un
+// messaggio comprensibile e un pulsante "Riprova", invece di lasciare la
+// pagina ferma senza spiegazioni.
+function renderConnectError(e) {
+  console.error(e);
+  const rejected = e?.code === 4001 || e?.code === "ACTION_REJECTED" || e?.error?.code === 4001 || e?.info?.error?.code === 4001;
+  $("btn-connect").disabled = false;
+  $("app-root").innerHTML = `
+    <div class="empty-state">
+      <h3>${rejected ? t("connectRejectedTitle") : t("loadFailedTitle")}</h3>
+      <p class="muted">${rejected ? t("connectRejectedDesc") : t("loadFailedDesc")}</p>
+      <button class="btn" id="btn-retry" style="margin-top:8px;">${t("retryBtn")}</button>
+    </div>`;
+  // Riprova = connessione ricreata da capo, tornando al registro aperto (se c'era)
+  $("btn-retry").addEventListener("click", () => connect(state.tokenId));
+}
+
+async function runSafely(fn) {
+  try {
+    await fn();
+  } catch (e) {
+    renderConnectError(e);
+  }
+}
+
 function explainRevert(e) {
   // ethers v6 decodifica gli errori custom se l'ABI li contiene (li abbiamo inclusi)
   const name = e?.revert?.name || e?.errorName;
@@ -2394,7 +2531,8 @@ function explainRevert(e) {
 // AVVIO
 // =======================================================================
 applyStaticTranslations();
-$("btn-connect").addEventListener("click", connect);
+$("btn-connect").addEventListener("click", () => connect());
+startup();
 $("btn-logout").addEventListener("click", () => {
   // Nessuno stato locale da salvare — il modo piu' sicuro e pulito di
   // azzerare tutto (chiave di cifratura in memoria, listener, sessione col

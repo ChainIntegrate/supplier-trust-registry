@@ -249,7 +249,8 @@ Legenda: ✅ corretto · ⏳ aperto · 📌 limite noto, solo documentato
 | | S6 Content-Security-Policy | ⏳ |
 | | S7 Vincoli imposti solo dall'interfaccia (contratto V3) | 📌 |
 | Interfaccia | L1 Linguaggio comprensibile, senza gergo tecnico | ✅ |
-| | U1–U11, U14–U16 Correzioni e miglioramenti d'uso | ⏳ |
+| | U1–U3, U10 Primo accesso, rete, messaggi d'errore | ✅ |
+| | U4–U9, U11, U14–U16 Correzioni e miglioramenti d'uso | ⏳ |
 | | U12–U13 Correzioni tracciate e condivisione riservata nell'interfaccia | ⏳ |
 | | U17 Testi della guida | ✅ |
 | Documentazione | D1 Configurazione di esempio del backend | ✅ |
