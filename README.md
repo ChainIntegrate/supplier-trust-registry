@@ -119,7 +119,10 @@ documentato da LUKSO), upload verso l'API di scrittura del nodo IPFS
 proprio (`IPFS_API_URL`, porta 5001 raggiungibile solo dall'IP del VPS,
 come in traceability-registry) e proxy RPC in lettura. Non cifra mai
 nulla, non vede mai un PIN. Multer fissato a 2.x deliberatamente (la 1.x
-ha vulnerabilità note).
+ha vulnerabilità note). In Nginx, `location /api/` deve avere
+`client_max_body_size 11M`: il backend accetta file fino a 10 MB
+(`MAX_UPLOAD_BYTES`) e con un limite più basso Nginx rifiuterebbe gli
+allegati Gold prima che arrivino al backend.
 
 **Lettura dei file** — il frontend legge direttamente dal gateway del nodo
 proprio `https://ipfs.chainintegrate.it` (serve solo i file pinnati da
