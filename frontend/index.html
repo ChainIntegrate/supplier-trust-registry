@@ -631,7 +631,10 @@ const I18N = {
     connecting: "Caricamento in corso…",
     welcomeTitle: "Benvenuto nel Supplier Trust Registry",
     welcomeDesc: "Accedi con il tuo Universal Profile per aprire i tuoi registri fornitori.",
-    welcomeDescRegistry: "Accedi con il tuo Universal Profile per consultare questo registro.",
+    readOnlyBanner: "Stai consultando questo registro in sola lettura: vedi i contenuti pubblici. Per gestire i tuoi registri, accedi con il tuo Universal Profile.",
+    shareLinkBtn: "Condividi link",
+    linkCopied: "Link copiato. Chi lo apre vede i contenuti pubblici del registro, anche senza accedere.",
+    copyThisLink: "Copia questo link:",
     wrongNetworkTitle: "Rete non corretta",
     wrongNetworkDesc: "L'estensione Universal Profile è collegata a un'altra rete (ID {chainId}). Il registro funziona sulla rete principale LUKSO.",
     switchNetworkBtn: "Passa alla rete LUKSO",
@@ -796,7 +799,10 @@ const I18N = {
     connecting: "Loading…",
     welcomeTitle: "Welcome to the Supplier Trust Registry",
     welcomeDesc: "Sign in with your Universal Profile to open your supplier registries.",
-    welcomeDescRegistry: "Sign in with your Universal Profile to view this registry.",
+    readOnlyBanner: "You are viewing this registry in read-only mode: public content only. To manage your registries, sign in with your Universal Profile.",
+    shareLinkBtn: "Share link",
+    linkCopied: "Link copied. Anyone opening it sees the registry's public content, even without signing in.",
+    copyThisLink: "Copy this link:",
     wrongNetworkTitle: "Wrong network",
     wrongNetworkDesc: "The Universal Profile extension is connected to another network (ID {chainId}). The registry runs on the LUKSO main network.",
     switchNetworkBtn: "Switch to the LUKSO network",
@@ -1233,6 +1239,11 @@ async function fetchFromIPFS(uri, expectedHash) {
 // scoprono tutti i registri del visitatore e si mostra una lista.
 // =======================================================================
 async function connect(reopenTokenId = null) {
+  if (!window.lukso && state.readOnlyMode && $("read-only-banner")) {
+    // in sola lettura il registro resta visibile: spiego solo cosa serve per accedere
+    $("read-only-banner").textContent = t("noExtension");
+    return;
+  }
   if (!window.lukso) {
     renderWelcome(t("noExtension"), false);
     return;
@@ -1245,6 +1256,39 @@ async function connect(reopenTokenId = null) {
   } catch (e) {
     renderConnectError(e);
   }
+}
+
+function initReadProvider() {
+  state.readOnlyProvider = new ethers.JsonRpcProvider(CONFIG.RPC_URL, CONFIG.CHAIN_ID, { batchMaxCount: 1, staticNetwork: true });
+  state.contractReadOnly = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, ABI, state.readOnlyProvider);
+}
+
+// =======================================================================
+// CONSULTAZIONE IN SOLA LETTURA (audit U14) — chi apre il link di un
+// registro (?tokenId=...) lo vede subito, senza estensione e senza
+// accedere: le letture passano comunque dal nostro proxy /api/rpc, non
+// dall'estensione. Si vedono solo i contenuti pubblici; quelli privati
+// restano cifrati ("Ho il codice del registro" per chi lo conosce).
+// Nessuna scrittura possibile: nessun account, nessun signer. Il pulsante
+// "Accedi" in alto porta alla modalita' completa sullo stesso registro.
+// =======================================================================
+async function openReadOnly(tokenId) {
+  renderError(t("connecting"));
+  try {
+    initReadProvider();
+    state.visitorAccount = null;
+    state.signer = null;
+    state.contract = null;
+    state.readOnlyMode = true;
+    await openRegistry(tokenId);
+  } catch (e) {
+    renderConnectError(e);
+  }
+}
+
+function registryLinkFromUrl() {
+  const tokenId = new URLSearchParams(window.location.search).get("tokenId") || "";
+  return /^0x[0-9a-fA-F]{64}$/.test(tokenId) ? tokenId : null;
 }
 
 async function connectAndOpen(reopenTokenId = null) {
@@ -1286,8 +1330,8 @@ async function connectAndOpen(reopenTokenId = null) {
   // automatico — se il nodo e' momentaneamente irraggiungibile, ethers
   // altrimenti resta bloccato nel tentativo di rilevare la rete e anche
   // "Riprova" continuerebbe a fallire (audit U10).
-  state.readOnlyProvider = new ethers.JsonRpcProvider(CONFIG.RPC_URL, CONFIG.CHAIN_ID, { batchMaxCount: 1, staticNetwork: true });
-  state.contractReadOnly = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, ABI, state.readOnlyProvider);
+  initReadProvider();
+  state.readOnlyMode = false;
 
   $("btn-connect").textContent = shortAddr(state.visitorAccount);
   $("btn-connect").disabled = true;
@@ -1420,7 +1464,7 @@ async function openRegistry(tokenId) {
   }
   state.tokenId = tokenId;
   state.registryOwner = owner;
-  state.isOwner = state.visitorAccount.toLowerCase() === owner.toLowerCase();
+  state.isOwner = !!state.visitorAccount && state.visitorAccount.toLowerCase() === owner.toLowerCase();
 
   // L'etichetta scelta al mint non e' in nessun getter — va ripresa
   // dall'evento RegistryMinted di questo specifico tokenId (filtro sul
@@ -1592,7 +1636,7 @@ async function renderDashboard() {
           ${escapeHtml((state.registryLabel || "?").charAt(0).toUpperCase())}
         </div>
         <div>
-          <button class="btn btn-ghost" id="btn-back-to-list" style="padding:6px 12px; font-size:13px; margin-bottom:10px;">${t("backToRegistries")}</button>
+          ${state.readOnlyMode ? "" : `<button class="btn btn-ghost" id="btn-back-to-list" style="padding:6px 12px; font-size:13px; margin-bottom:10px;">${t("backToRegistries")}</button>`}
           <h2 style="margin:0;">${escapeHtml(state.registryLabel || t("unnamedRegistry"))}</h2>
           <details class="muted" style="font-size:12px; margin-top:4px;">
             <summary style="cursor:pointer;">${t("technicalDetails")}</summary>
@@ -1601,10 +1645,14 @@ async function renderDashboard() {
           </details>
         </div>
       </div>
-      <div class="row">
-        <!-- Il codice e' gia' garantito sbloccato per arrivare qui (vedi renderUnlockGate) -->
+      <div style="text-align:right;">
+        <button class="btn btn-ghost" id="btn-share-link" style="padding:6px 12px; font-size:13px;">${t("shareLinkBtn")}</button>
+        <div id="share-link-status" class="muted" style="font-size:12px; margin-top:4px; max-width:260px;"></div>
       </div>
     </div>
+    ${state.readOnlyMode ? `
+      <div class="warning-box" id="read-only-banner" style="margin-top:12px; background:var(--powder); border-color:var(--powder-line); color:var(--ink);">${t("readOnlyBanner")}</div>
+    ` : ""}
     ${state.isOwner && canCustomizeImage ? `
       <div style="margin-top:8px;">
         <input type="file" id="registry-image-input" accept="image/*" style="display:none;" />
@@ -1644,10 +1692,11 @@ async function renderDashboard() {
     await renderSuppliers();
     if (state.isOwner && !state.isRevoked) $("btn-add-supplier").addEventListener("click", openSupplierModal);
   }
-  $("btn-back-to-list").addEventListener("click", () => {
+  if ($("btn-back-to-list")) $("btn-back-to-list").addEventListener("click", () => {
     state.cryptoKey = null; // si esce dal registro, la chiave non deve sopravvivere al cambio contesto
     runSafely(() => renderRegistrySelector(true));
   });
+  $("btn-share-link").addEventListener("click", () => shareRegistryLink(state.tokenId));
 
   loadRegistryImage();
   if (state.isOwner && canCustomizeImage) {
@@ -2621,6 +2670,20 @@ function setStatus(msg, isError = false) {
   el.className = isError ? "error" : "ok";
 }
 
+// "Condividi link" (audit U14): link diretto al registro, apribile da
+// chiunque anche senza estensione. Mostra solo i contenuti pubblici.
+async function shareRegistryLink(tokenId) {
+  const url = `${window.location.origin}${window.location.pathname}?tokenId=${tokenId}`;
+  const status = $("share-link-status");
+  try {
+    await navigator.clipboard.writeText(url);
+    status.textContent = t("linkCopied");
+  } catch {
+    // appunti non disponibili (permessi/browser): mostro il link da copiare a mano
+    status.innerHTML = `${t("copyThisLink")}<br/><input type="text" readonly value="${escapeHtml(url)}" style="margin-top:4px; font-size:11px;" onclick="this.select()" />`;
+  }
+}
+
 function renderError(msg) {
   $("app-root").innerHTML = `<div class="empty-state">${msg}</div>`;
 }
@@ -2634,8 +2697,10 @@ async function startup() {
     // l'estensione a volte inietta window.lukso un istante dopo il caricamento
     await new Promise(resolve => setTimeout(resolve, 400));
   }
+  const linkedRegistry = registryLinkFromUrl();
   if (!window.lukso) {
-    renderWelcome(t("noExtension"), false);
+    if (linkedRegistry) await openReadOnly(linkedRegistry);
+    else renderWelcome(t("noExtension"), false);
     return;
   }
   let accounts = [];
@@ -2647,9 +2712,10 @@ async function startup() {
   } catch { /* nessuna autorizzazione: schermata di benvenuto */ }
   if (Array.isArray(accounts) && accounts.length > 0) {
     await connect();
+  } else if (linkedRegistry) {
+    await openReadOnly(linkedRegistry);
   } else {
-    const hasRegistryLink = /^0x[0-9a-fA-F]{64}$/.test(new URLSearchParams(window.location.search).get("tokenId") || "");
-    renderWelcome(hasRegistryLink ? t("welcomeDescRegistry") : t("welcomeDesc"), true);
+    renderWelcome(t("welcomeDesc"), true);
   }
 }
 
@@ -2697,7 +2763,8 @@ function renderConnectError(e) {
       <button class="btn" id="btn-retry" style="margin-top:8px;">${t("retryBtn")}</button>
     </div>`;
   // Riprova = connessione ricreata da capo, tornando al registro aperto (se c'era)
-  $("btn-retry").addEventListener("click", () => connect(state.tokenId));
+  $("btn-retry").addEventListener("click", () =>
+    state.readOnlyMode ? openReadOnly(state.tokenId || registryLinkFromUrl()) : connect(state.tokenId));
 }
 
 async function runSafely(fn) {

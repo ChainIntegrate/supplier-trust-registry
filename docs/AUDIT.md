@@ -187,8 +187,12 @@ non confermata
   corrette restano nei grafici.
 - ⏳ **U13** — La condivisione riservata (Gold), supportata dal contratto,
   non è ancora disponibile nell'interfaccia.
-- ⏳ **U14** — Per consultare un registro pubblico serve comunque
-  l'estensione; manca un pulsante "condividi link".
+- ✅ **U14** — Per consultare un registro pubblico serviva comunque
+  l'estensione, e mancava un modo per condividerlo. Ora chi apre il link di
+  un registro (`?tokenId=…`) lo consulta subito in sola lettura, senza
+  estensione e senza accedere (contenuti pubblici; quelli privati restano
+  cifrati, con "Ho il codice del registro" per chi lo conosce), e la pagina
+  del registro ha il pulsante "Condividi link".
 - ✅ **U15** — I visitatori vedevano "Sblocca per vedere" su contenuti
   privati. Ora vedono "Contenuto riservato" con un pulsante secondario "Ho
   il codice del registro": la chiave dipende dal codice e dal registro, non
