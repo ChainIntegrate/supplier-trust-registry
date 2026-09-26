@@ -182,9 +182,15 @@ non confermata
   visite successive si leggono solo i blocchi nuovi. Misurato su un
   registro di prova con 8 fornitori, 32 valutazioni e 150.000 blocchi di
   storia: da 244 a 73 richieste alla prima visita, a 9 alle successive.
-- ⏳ **U12** — Le correzioni tracciate (`supersedes`), supportate dal
-  contratto, non sono utilizzabili dall'interfaccia; le valutazioni
-  corrette restano nei grafici.
+- ✅ **U12** — Le correzioni tracciate (`supersedes`), supportate dal
+  contratto, non erano utilizzabili dall'interfaccia: una valutazione
+  sbagliata restava nei grafici insieme a quella giusta. Ora il
+  proprietario ha "Correggi" su ogni valutazione ancora valida: il modale
+  si apre precompilato, la nuova valutazione dichiara quale sostituisce, la
+  sostituita resta nello storico (attenuata, "Sostituita dalla valutazione
+  n. X") ma esce da grafici, medie e "valore precedente". Una correzione può
+  cambiare pubblico/privato, con avviso che un originale pubblico resta
+  pubblico; l'allegato originale viene riusato se la scelta non cambia.
 - ⏳ **U13** — La condivisione riservata (Gold), supportata dal contratto,
   non è ancora disponibile nell'interfaccia.
 - ✅ **U14** — Per consultare un registro pubblico serviva comunque
