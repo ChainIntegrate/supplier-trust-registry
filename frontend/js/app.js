@@ -1,0 +1,2768 @@
+const REGISTRY_ABI_JSON = window.REGISTRY_ABI_JSON;
+
+// =======================================================================
+// CONFIGURAZIONE — da completare prima del deploy reale
+// =======================================================================
+const CONFIG = {
+  CHAIN_ID: 42, // mainnet
+  RPC_URL: window.location.origin + "/api/rpc", // proxy del backend verso il nodo proprio — mai l'URL del nodo (col token) nel frontend. ethers vuole un URL completo, un percorso relativo non basta.
+  REGISTRY_CONTRACT: "0xFa143308D85b81Ed57547049F4A7718c3117A064", // MAINNET V3, deployato e verificato
+  DEPLOY_BLOCK: 8268392, // blocco di deploy della V3 mainnet — OBBLIGATORIO su ogni queryFilter
+  KDF_ITERATIONS: 600000, // PBKDF2-HMAC-SHA256, raccomandazione OWASP 2023/2025
+  IPFS_GATEWAY: "https://ipfs.chainintegrate.it", // nodo proprio, sola lettura, solo file pinnati da noi
+  IPFS_FALLBACK_GATEWAY: "https://api.universalprofile.cloud", // gateway LUKSO, solo per i file non presenti sul nodo
+};
+
+// ABI curata (sottoinsieme reale, estratta dalla compilazione — vedi frontend/abi.subset.json,
+// generata da build_opt/contracts_SupplierRegistry_sol_SupplierRegistry.abi)
+const ABI = REGISTRY_ABI_JSON;
+
+// =======================================================================
+// LIBRERIE — solo ethers, servita dal nostro dominio (/shared/, repo
+// ChainIntegrate/shared-assets, versione fissata e impronta verificabile):
+// nessun codice eseguito in questa pagina arriva da CDN esterni. Nessuna libreria
+// up-provider: questa e' una pagina normale, non un mini-app incorporato
+// nel Grid — l'estensione UP inietta window.lukso su qualunque pagina,
+// esattamente come window.ethereum di MetaMask, senza bisogno di alcun
+// iframe "genitore".
+// =======================================================================
+import { ethers } from "/shared/ethers/6.13.4/ethers.min.js";
+
+// =======================================================================
+// STATO GLOBALE
+// =======================================================================
+const state = {
+  ethersProvider: null,
+  readOnlyProvider: null, // Blockscout, solo per letture — separato dal provider dell'estensione UP
+  signer: null,
+  visitorAccount: null,   // chi ha collegato il wallet (per firmare/pagare gas)
+  registryOwner: null,    // proprietario EFFETTIVO del registro aperto (letto da tokenOwnerOf)
+  registryLabel: null,    // etichetta scelta al mint (es. "Fornitori di servizi"), letta dall'evento
+  schemaMinValue: null,   // range dello schema attuale — usato per l'asse dei grafici (renderSupplierChart)
+  schemaMaxValue: null,
+  contract: null,
+  contractReadOnly: null,
+  tokenId: null,          // bytes32 — con V2 NON e' piu' derivabile dal solo indirizzo,
+                           // va scoperto (lista registri) o passato via ?tokenId=0x...
+  isOwner: false,
+  isRevoked: false,       // true se getEffectiveLimits(registryOwner) e' tutto a zero: nessuna
+                          // Membership riconosciuta lo copre piu'. Il contratto NON blocca
+                          // addEvaluation/proposeSuccessor/confirmSuccessor in questo caso
+                          // (nessun check di tier al loro interno) — il blocco e' solo qui in UI.
+  cryptoKey: null,        // CryptoKey derivata dal PIN, tenuta solo in memoria di sessione
+  sessionToken: null,     // JWT emesso da /api/auth/verify, valido 30 minuti
+  sessionExpiresAt: 0,
+  schemaCache: null,
+  suppliersCache: [],
+};
+
+const $ = (id) => document.getElementById(id);
+
+// =======================================================================
+// LETTURA EVENTI A FINESTRE — molti RPC (incluso quello dell'estensione
+// UP) limitano eth_getLogs a un intervallo massimo di blocchi per
+// richiesta (qui: 10.000). Con la catena ormai a decine di migliaia di
+// blocchi dal deploy, una singola queryFilter(fromBlock=DEPLOY_BLOCK)
+// supera quel limite — non basta "il blocco di partenza giusto", serve
+// spezzare la lettura in finestre piu' piccole e unire i risultati.
+// Le letture a finestre sono in scanLogs (sotto), usata da getLogsCached.
+// =======================================================================
+const MAX_BLOCK_RANGE = 9000; // margine di sicurezza sotto il limite noto di 10.000
+
+
+// =======================================================================
+// LETTURA EVENTI CON CACHE (audit U11) — prima ogni fornitore rileggeva
+// l'intero storico dal blocco di deploy (una scansione a finestre per
+// fornitore, piu' una richiesta di blocco per ogni valutazione): il numero
+// di richieste cresceva con fornitori, valutazioni ed eta' della catena.
+// Ora:
+// - UNA sola scansione per registro, che raccoglie insieme fornitori e
+//   valutazioni (topic0 = SupplierAdded OPPURE EvaluationAdded, topic1 =
+//   tokenId), e una sola per l'elenco dei registri (RegistryMinted);
+// - finestre lette in parallelo (poche alla volta, per il limite del proxy);
+// - risultati tenuti in memoria e in localStorage: alla visita successiva
+//   si leggono solo i blocchi nuovi (piu' un piccolo margine all'indietro,
+//   per sicurezza). Sono solo dati gia' pubblici sulla catena (impronte,
+//   riferimenti ai file, flag): nulla di cifrato o di privato;
+// - timestamp dei blocchi chiesti una volta per blocco e ricordati.
+// Dopo una scrittura si chiama invalidateEvents(), cosi' la lettura
+// successiva va comunque in rete (solo per i blocchi nuovi).
+// =======================================================================
+const EVENT_SCAN_CONCURRENCY = 4;
+const EVENT_REORG_MARGIN = 64;       // blocchi riletti a ogni aggiornamento
+const EVENT_FRESH_MS = 15_000;       // entro questo tempo niente nuove letture
+const EVENT_STORAGE_PREFIX = `str-events-v1:${CONFIG.CHAIN_ID}:${CONFIG.REGISTRY_CONTRACT.toLowerCase()}:`;
+
+const eventCache = new Map();        // chiave -> { toBlock, logs, updatedAt, stale }
+const eventInFlight = new Map();     // chiave -> Promise (letture concorrenti condivise)
+const blockTimestamps = new Map();   // blockHash -> ms
+
+function storageGet(key) {
+  try { return JSON.parse(localStorage.getItem(key) || "null"); } catch { return null; }
+}
+function storageSet(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* spazio pieno o storage bloccato: solo memoria */ }
+}
+
+// minBlock: blocco di una scrittura appena confermata. Il nodo di lettura
+// puo' essere un istante indietro rispetto a quello dell'estensione: la
+// lettura successiva aspetta (fino a ~10 s) che lo raggiunga, invece di
+// mostrare la lista senza il nuovo elemento.
+const pendingMinBlock = new Map();
+function invalidateEvents(key, minBlock = 0) {
+  const entry = eventCache.get(key);
+  if (entry) entry.stale = true;
+  if (minBlock) pendingMinBlock.set(key, Math.max(pendingMinBlock.get(key) || 0, Number(minBlock)));
+}
+
+async function latestBlockAtLeast(minBlock) {
+  let latest = await state.readOnlyProvider.getBlockNumber();
+  for (let i = 0; i < 10 && latest < minBlock; i++) {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    latest = await state.readOnlyProvider.getBlockNumber();
+  }
+  return latest;
+}
+
+async function scanLogs(topics, fromBlock, toBlock) {
+  const windows = [];
+  for (let start = fromBlock; start <= toBlock; start += MAX_BLOCK_RANGE + 1) {
+    windows.push([start, Math.min(start + MAX_BLOCK_RANGE, toBlock)]);
+  }
+  const results = new Array(windows.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < windows.length) {
+      const i = next++;
+      const [from, to] = windows[i];
+      results[i] = await state.readOnlyProvider.getLogs({ address: CONFIG.REGISTRY_CONTRACT, topics, fromBlock: from, toBlock: to });
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(EVENT_SCAN_CONCURRENCY, windows.length) }, worker));
+  return results.flat().map(l => ({ b: l.blockNumber, h: l.blockHash, x: l.transactionHash, i: l.index, t: [...l.topics], d: l.data }));
+}
+
+async function getLogsCached(key, topics) {
+  let entry = eventCache.get(key);
+  if (!entry) {
+    const saved = storageGet(EVENT_STORAGE_PREFIX + key);
+    if (saved && Array.isArray(saved.logs) && Number.isInteger(saved.toBlock)) {
+      entry = { toBlock: saved.toBlock, logs: saved.logs, updatedAt: 0, stale: true };
+      eventCache.set(key, entry);
+    }
+  }
+  if (entry && !entry.stale && Date.now() - entry.updatedAt < EVENT_FRESH_MS) return entry.logs;
+  if (eventInFlight.has(key)) return eventInFlight.get(key);
+
+  const promise = (async () => {
+    const latest = await latestBlockAtLeast(pendingMinBlock.get(key) || 0);
+    pendingMinBlock.delete(key);
+    const from = entry ? Math.max(CONFIG.DEPLOY_BLOCK, entry.toBlock + 1 - EVENT_REORG_MARGIN) : CONFIG.DEPLOY_BLOCK;
+    const fresh = from <= latest ? await scanLogs(topics, from, latest) : [];
+    const kept = entry ? entry.logs.filter(l => l.b < from) : [];
+    const seen = new Set();
+    const logs = [...kept, ...fresh]
+      .filter(l => { const id = l.x + ":" + l.i; if (seen.has(id)) return false; seen.add(id); return true; })
+      .sort((a, b) => a.b - b.b || a.i - b.i);
+    const updated = { toBlock: latest, logs, updatedAt: Date.now(), stale: false };
+    eventCache.set(key, updated);
+    storageSet(EVENT_STORAGE_PREFIX + key, { toBlock: latest, logs });
+    return logs;
+  })();
+  eventInFlight.set(key, promise);
+  try { return await promise; } finally { eventInFlight.delete(key); }
+}
+
+function parseLogs(logs) {
+  const iface = state.contractReadOnly.interface;
+  return logs.map(l => {
+    const parsed = iface.parseLog({ topics: l.t, data: l.d });
+    return parsed && { name: parsed.name, args: parsed.args, blockNumber: l.b, blockHash: l.h };
+  }).filter(Boolean);
+}
+
+// "registry2": dal U13 la scansione include anche EvaluationDisclosed — chiave
+// nuova, cosi' una cache locale precedente (senza condivisioni) non viene riusata.
+const registryEventsKey = (tokenId) => "registry2:" + tokenId.toLowerCase();
+const MINTED_EVENTS_KEY = "minted";
+
+// Fornitori e valutazioni di UN registro, con una sola lettura.
+async function registryEvents(tokenId) {
+  const iface = state.contractReadOnly.interface;
+  const topics = [
+    [iface.getEvent("SupplierAdded").topicHash, iface.getEvent("EvaluationAdded").topicHash, iface.getEvent("EvaluationDisclosed").topicHash],
+    ethers.zeroPadValue(tokenId, 32),
+  ];
+  const events = parseLogs(await getLogsCached(registryEventsKey(tokenId), topics));
+  const suppliers = events.filter(e => e.name === "SupplierAdded");
+  const evaluations = events.filter(e => e.name === "EvaluationAdded");
+  const disclosures = events.filter(e => e.name === "EvaluationDisclosed");
+  return {
+    suppliers,
+    evaluations,
+    disclosures,
+    evaluationsOf: (supplierId) => evaluations.filter(e => e.args.supplierId === BigInt(supplierId)),
+    disclosuresOf: (supplierId, evaluationId) => disclosures.filter(e =>
+      e.args.supplierId === BigInt(supplierId) && e.args.evaluationId === BigInt(evaluationId)),
+  };
+}
+
+// Tutti i registri mintati (elenco del visitatore ed etichetta del registro).
+async function mintedEvents() {
+  const topics = [state.contractReadOnly.interface.getEvent("RegistryMinted").topicHash];
+  return parseLogs(await getLogsCached(MINTED_EVENTS_KEY, topics));
+}
+
+// Il timestamp di un blocco non cambia mai: ricordato anche tra una visita
+// e l'altra (localStorage), salvato in blocco poco dopo l'ultima lettura.
+const BLOCK_TS_STORAGE_KEY = EVENT_STORAGE_PREFIX + "block-timestamps";
+let blockTimestampsLoaded = false;
+let blockTimestampsSaveTimer = null;
+
+function loadBlockTimestamps() {
+  if (blockTimestampsLoaded) return;
+  blockTimestampsLoaded = true;
+  const saved = storageGet(BLOCK_TS_STORAGE_KEY);
+  if (saved && typeof saved === "object") {
+    for (const [hash, ms] of Object.entries(saved)) if (Number.isFinite(ms)) blockTimestamps.set(hash, ms);
+  }
+}
+
+function saveBlockTimestamps() {
+  clearTimeout(blockTimestampsSaveTimer);
+  blockTimestampsSaveTimer = null;
+  const plain = {};
+  for (const [hash, ms] of blockTimestamps) if (typeof ms === "number") plain[hash] = ms;
+  storageSet(BLOCK_TS_STORAGE_KEY, plain);
+}
+
+function scheduleBlockTimestampsSave() {
+  clearTimeout(blockTimestampsSaveTimer);
+  blockTimestampsSaveTimer = setTimeout(saveBlockTimestamps, 200);
+}
+// salvataggio garantito anche se la scheda viene chiusa subito
+window.addEventListener("pagehide", () => { if (blockTimestampsSaveTimer) saveBlockTimestamps(); });
+
+async function getBlockTimestampMs(blockHash) {
+  loadBlockTimestamps();
+  if (blockTimestamps.has(blockHash)) return blockTimestamps.get(blockHash);
+  const promise = state.readOnlyProvider.getBlock(blockHash).then(b => Number(b.timestamp) * 1000);
+  blockTimestamps.set(blockHash, promise);
+  try {
+    const ms = await promise;
+    blockTimestamps.set(blockHash, ms);
+    scheduleBlockTimestampsSave();
+    return ms;
+  } catch (e) {
+    blockTimestamps.delete(blockHash);
+    throw e;
+  }
+}
+
+// =======================================================================
+// I18N — inglese di default, italiano solo se e' la lingua PRINCIPALE
+// dichiarata dal browser (non solo presente da qualche parte nella lista
+// di lingue preferite — un utente con ["en", "it"] vuole l'inglese, non
+// l'italiano solo perche' compare in seconda posizione).
+// =======================================================================
+const primaryLang = navigator.language || (navigator.languages && navigator.languages[0]) || "en";
+const LANG = primaryLang.toLowerCase().startsWith("it") ? "it" : "en";
+
+const I18N = {
+  it: {
+    pageTitle: "Supplier Trust Registry — ChainIntegrate",
+    connecting: "Caricamento in corso…",
+    welcomeTitle: "Benvenuto nel Supplier Trust Registry",
+    welcomeDesc: "Accedi con il tuo Universal Profile per aprire i tuoi registri fornitori.",
+    readOnlyBanner: "Stai consultando questo registro in sola lettura: vedi i contenuti pubblici. Per gestire i tuoi registri, accedi con il tuo Universal Profile.",
+    shareLinkBtn: "Condividi link",
+    linkCopied: "Link copiato. Chi lo apre vede i contenuti pubblici del registro, anche senza accedere.",
+    copyThisLink: "Copia questo link:",
+    wrongNetworkTitle: "Rete non corretta",
+    wrongNetworkDesc: "L'estensione Universal Profile è collegata a un'altra rete (ID {chainId}). Il registro funziona sulla rete principale LUKSO.",
+    switchNetworkBtn: "Passa alla rete LUKSO",
+    switchNetworkFailed: "Non è stato possibile cambiare rete automaticamente: selezionala dall'estensione Universal Profile e ricarica la pagina.",
+    connectRejectedTitle: "Accesso annullato",
+    connectRejectedDesc: "La richiesta è stata annullata nell'app Universal Profile. Puoi riprovare quando vuoi.",
+    loadFailedTitle: "Caricamento non riuscito",
+    loadFailedDesc: "Non è stato possibile caricare i dati. Controlla la connessione e riprova tra qualche istante.",
+    retryBtn: "Riprova",
+    connectButton: "Accedi con Universal Profile",
+    logoutBtn: "Esci",
+    averagesLabel: "Media",
+    notEnoughDataForChart: "Dati insufficienti",
+    periodAverageLabel: "Media per valutazione",
+    metricsLabel: "Metriche",
+    scoreRangeLabel: "Punteggio",
+    scoreRangeValue: "da {min} a {max}",
+    footerRights: "© 2026 Chain Integrate — Tutti i diritti riservati.",
+    footerConsulting: "Servizi di consulenza in integrazione dati & blockchain a cura di ChainIntegrate",
+    footerTelegram: "Assistenza via Telegram",
+    backToTopLabel: "Torna su",
+    howItWorksLabel: "Come funziona",
+    noExtension: "Per accedere serve l'estensione Universal Profile nel browser. Da smartphone, apri questa pagina dal browser integrato nell'app Universal Profile.",
+    noAccount: "Nessun account collegato.",
+
+    secretCode: "Codice segreto",
+    pinPlaceholder: "Es. una frase di qualche parola, facile da ricordare",
+    repeatCode: "Ripeti il codice",
+    repeatCodePlaceholder: "Ripeti lo stesso codice",
+    cancel: "Annulla",
+    continueBtn: "Continua",
+    pinWarningText: "Non esiste un modo per recuperarlo se lo dimentichi. Scrivilo da qualche parte di sicuro (un gestore di password, un posto fisico sicuro) prima di continuare.",
+
+    createCodeTitle: "Crea il tuo codice segreto",
+    enterCodeTitle: "Inserisci il tuo codice segreto",
+    createCodeDesc: "Sceglilo ora: ti servirà sempre lo stesso, ogni volta, per leggere e aggiungere dati privati a questo registro. Meglio una frase di qualche parola che una parola sola: più è lungo, meglio protegge i tuoi dati.",
+    enterCodeDesc: "Lo stesso codice che hai scelto la prima volta — serve per decifrare i dati privati già presenti.",
+    createCodeBtn: "Crea codice",
+    unlockBtn: "Sblocca",
+    emptyCodeError: "Inserisci un codice.",
+    codesDontMatch: "I due codici non coincidono.",
+
+    newSupplierTitle: "Nuovo fornitore",
+    supplierNameLabel: "Nome fornitore",
+    supplierNamePlaceholder: "Es. Acme Meccanica Srl",
+    supplierPublicTitle: "Nome visibile pubblicamente",
+    supplierPublicDesc: "Se disattivo, il nome resta cifrato — solo tu lo vedi",
+    createSupplierBtn: "Crea fornitore",
+
+    newEvaluationTitle: "Nuova valutazione",
+    evaluationDateLabel: "Data a cui si riferisce la valutazione",
+    documentLabel: "Documento allegato (opzionale)",
+    documentHint: "Segue la stessa scelta pubblico/privato di questa valutazione.",
+    documentLocked: "Allegare un documento richiede il piano Gold.",
+    noteLabel: "Note",
+    notePlaceholder: "Osservazioni facoltative",
+    makePublicTitle: "Rendi pubblica questa valutazione",
+    makePublicDesc: "Chiunque potrà leggerla, per sempre",
+    makePublicWarning: "Una volta resa pubblica, questa valutazione è leggibile da chiunque, per sempre. Anche disattivando di nuovo l'interruttore in futuro, il contenuto già pubblicato resta recuperabile da chi lo ha già scaricato.",
+    saveEvaluationBtn: "Salva valutazione",
+    changeImageBtn: "Cambia immagine",
+    previousValueLabel: "· prima: {value}",
+    backToEditBtn: "Torna a modificare",
+    confirmAndSaveBtn: "Conferma e salva",
+    errImageCustomizationNotAllowed: "L'immagine personalizzata richiede il piano Silver o superiore.",
+
+    verifying: "Verifica in corso…",
+    wrongCode: "Codice errato — non corrisponde ai dati privati già presenti in questo registro.",
+
+    yourRegistries: "I tuoi Registri",
+    usedOfTier: "{count} di {max} previsti dal tuo piano",
+    registryFallbackName: "Registro #{index}",
+    openBtn: "Apri",
+    noMembershipTitle: "Nessuna Membership attiva",
+    noMembershipDesc: "Per creare un registro serve una Membership ChainIntegrate attiva (Bronze o superiore)<br/>collegata a questo profilo.",
+    mintFirstTitle: "Crea il tuo primo registro",
+    mintNewTitle: "Nuovo registro",
+    mintLabelLabel: 'Etichetta (es. "Fornitori di servizi")',
+    mintLabelPlaceholder: "Un nome per riconoscerlo",
+    mintBtn: "Crea registro",
+    maxRegistriesReached: "Hai raggiunto il numero massimo di registri del tuo piano ({max}).",
+    confirmFromWallet: "Conferma nell'app Universal Profile…",
+    openExtensionToSign: "Apri l'estensione o l'app Universal Profile per confermare.",
+    txInProgress: "Salvataggio in corso…",
+    txPendingConfirmation: "Salvataggio inviato, in attesa di conferma — può richiedere qualche secondo.",
+    registryMintedOpening: "Registro creato, apertura in corso…",
+    noRegistryFound: "Registro non trovato.",
+
+    backToRegistries: "← I tuoi registri",
+    technicalDetails: "Dettagli tecnici",
+    registryIdLabel: "Identificativo del registro",
+    evaluationNumber: "Valutazione n. {id}",
+    unnamedRegistry: "Registro senza nome",
+    suppliersCount: "{count} / {max} fornitori",
+    ofMaxSuppliers: "/ {max} fornitori",
+    schemaNotDefined: "Criteri non ancora definiti",
+    schemaDefined: "Criteri definiti",
+    schemaCurrentVersion: "Criteri: versione {v}",
+    addSupplierBtn: "+ Nuovo fornitore",
+
+    defineSchemaTitle: "Definisci i criteri di valutazione",
+    defineSchemaDesc: "Solo la prima volta — versioni successive si possono aggiungere senza perdere lo storico.",
+    criteriaLabel: "Criteri (uno per riga)",
+    criteriaPlaceholder: "Puntualità\nQualità\nDocumentazione\nReattività",
+    minValueLabel: "Valore minimo",
+    maxValueLabel: "Valore massimo",
+    saveSchemaBtn: "Salva criteri",
+    atLeastOneCriterion: "Inserisci almeno un criterio.",
+    minLessThanMax: "Il minimo deve essere inferiore al massimo.",
+
+    membershipRevokedWarning: "La tua Membership non risulta più attiva. Non puoi creare nuovi registri o fornitori, cambiare immagine né aggiungere valutazioni; i dati già salvati restano consultabili.",
+    addEvaluationLocked: "Non disponibile: la tua Membership non è più attiva.",
+
+    noSuppliersYet: "Nessun fornitore ancora — inizia aggiungendone uno.",
+    loadingLabel: "…caricamento…",
+    supplierFallbackName: "Fornitore #{id}",
+    publicNameBadge: "Nome pubblico",
+    privateNameBadge: "Nome privato",
+    addEvaluationBtn: "+ Valutazione",
+    supplierDecryptFail: "Fornitore #{id} (impossibile decifrare)",
+
+    noEvaluationsYet: "Nessuna valutazione ancora.",
+    loadingEllipsis: "Caricamento…",
+    correctsHash: " · corregge la n. {id}",
+    correctBtn: "Correggi",
+    discloseBtn: "Condividi in modo riservato",
+    discloseTitle: "Condividi in modo riservato la valutazione n. {id}",
+    discloseDesc: "Crea un link che permette a chi lo riceve di leggere solo questa valutazione, senza il codice del registro e senza renderla pubblica. Chi lo apre può anche verificare che il contenuto è identico a quello registrato in origine.",
+    discloseIncludeName: "Includi il nome del fornitore",
+    discloseIncludeDoc: "Includi l'allegato",
+    discloseWarning: "Il link non si può revocare: chiunque lo riceva, anche inoltrato, potrà leggere questa valutazione per sempre. Condividilo solo con chi deve leggerla.",
+    discloseConfirmBtn: "Crea il link",
+    discloseLinkLabel: "Link da inviare",
+    copyLinkBtn: "Copia link",
+    linkCopiedShort: "Link copiato.",
+    closeBtn: "Chiudi",
+    discloseDone: "Condivisione registrata. Invia il link solo alla persona interessata.",
+    disclosedTimes: "Condivisa in modo riservato {n} volta/e.",
+    showDisclosureLinks: "Mostra i link",
+    disclosureNumber: "Condivisione n. {id}",
+    disclosureLinkUnavailable: "link non recuperabile",
+    correctionTitle: "Correggi la valutazione n. {id}",
+    correctionInfo: "La nuova valutazione sostituirà la n. {id}. L'originale resta nello storico, visibile ma non più conteggiata in grafici e medie.",
+    correctionSummary: "Sostituisce la valutazione n. {id}",
+    supersededByLabel: "Sostituita dalla valutazione n. {id}",
+    correctionPublicWarning: "La valutazione originale n. {id} è pubblica e resta pubblica per sempre: la correzione privata non la nasconde.",
+    attachmentReused: "allegato della valutazione originale",
+    attachmentNotCarried: "L'allegato della valutazione originale ({name}) non viene riportato perché è cambiata la scelta pubblico/privato: se serve, caricalo di nuovo.",
+    publicBadge: "Pubblica",
+    privateBadge: "Privata",
+    registeredOn: "Registrata il {date}",
+    referredTo: "Riferita al {date}",
+    unlockToSee: "Sblocca per vedere",
+    unreadableContent: "Impossibile leggere il contenuto ({reason}).",
+    publicDataReason: "dato pubblico",
+    wrongKeyReason: "chiave errata o dato corrotto",
+    downloading: "Scaricamento…",
+    openError: "Errore nell'apertura",
+
+    encryptingUploading: "Cifratura e upload in corso…",
+    pleaseWait: "Attendere…",
+    rangeError: '"{label}" deve essere tra {min} e {max} (hai messo {value}).',
+    emptyValue: "un valore vuoto",
+    dateRequired: "Inserisci la data a cui si riferisce la valutazione.",
+    privateContent: "Contenuto riservato.",
+    haveCodeBtn: "Ho il codice del registro",
+
+    errRegistryAlreadyMinted: "Hai già un registro su questo profilo.",
+    errNoRecognizedMembership: "Nessuna Membership attiva su questo profilo.",
+    errSupplierLimitReached: "Hai raggiunto il numero massimo di fornitori del tuo piano.",
+    errParamLimitReached: "Troppi criteri per il tuo piano attuale.",
+    errNotRegistryOwner: "Solo il proprietario del registro può eseguire questa azione.",
+    errSelectiveDisclosureNotAllowed: "La condivisione riservata richiede il piano Gold o superiore.",
+    errGeneric: "Operazione non riuscita: {msg}",
+    errUnknown: "errore sconosciuto",
+
+    errChallengeUnavailable: "Impossibile avviare l'accesso sicuro al server. Riprova tra poco.",
+    errAuthRejected: "Accesso rifiutato dal server ({reason}).",
+    errUploadFailed: "Caricamento del file non riuscito (errore {status}).",
+    errReadFailed: "Lettura del file non riuscita.",
+
+    dateLocale: "it-IT",
+  },
+  en: {
+    pageTitle: "Supplier Trust Registry — ChainIntegrate",
+    connecting: "Loading…",
+    welcomeTitle: "Welcome to the Supplier Trust Registry",
+    welcomeDesc: "Sign in with your Universal Profile to open your supplier registries.",
+    readOnlyBanner: "You are viewing this registry in read-only mode: public content only. To manage your registries, sign in with your Universal Profile.",
+    shareLinkBtn: "Share link",
+    linkCopied: "Link copied. Anyone opening it sees the registry's public content, even without signing in.",
+    copyThisLink: "Copy this link:",
+    wrongNetworkTitle: "Wrong network",
+    wrongNetworkDesc: "The Universal Profile extension is connected to another network (ID {chainId}). The registry runs on the LUKSO main network.",
+    switchNetworkBtn: "Switch to the LUKSO network",
+    switchNetworkFailed: "The network could not be switched automatically: select it in the Universal Profile extension and reload the page.",
+    connectRejectedTitle: "Sign-in cancelled",
+    connectRejectedDesc: "The request was cancelled in the Universal Profile app. You can try again at any time.",
+    loadFailedTitle: "Loading failed",
+    loadFailedDesc: "The data could not be loaded. Check your connection and try again in a moment.",
+    retryBtn: "Try again",
+    connectButton: "Sign in with Universal Profile",
+    logoutBtn: "Sign out",
+    averagesLabel: "Average",
+    notEnoughDataForChart: "Not enough data",
+    periodAverageLabel: "Average per evaluation",
+    metricsLabel: "Metrics",
+    scoreRangeLabel: "Score",
+    scoreRangeValue: "{min} to {max}",
+    footerRights: "© 2026 Chain Integrate — All rights reserved.",
+    footerConsulting: "Data & blockchain integration consulting by ChainIntegrate",
+    footerTelegram: "Telegram support",
+    backToTopLabel: "Back to top",
+    howItWorksLabel: "How it works",
+    noExtension: "Signing in requires the Universal Profile browser extension. On a smartphone, open this page from the browser built into the Universal Profile app.",
+    noAccount: "No account connected.",
+
+    secretCode: "Secret code",
+    pinPlaceholder: "E.g. a phrase of a few words, easy to remember",
+    repeatCode: "Repeat the code",
+    repeatCodePlaceholder: "Repeat the same code",
+    cancel: "Cancel",
+    continueBtn: "Continue",
+    pinWarningText: "There is no way to recover it if you forget it. Write it down somewhere safe (a password manager, a secure physical place) before continuing.",
+
+    createCodeTitle: "Create your secret code",
+    enterCodeTitle: "Enter your secret code",
+    createCodeDesc: "Choose it now: you'll need the exact same one every time, to read and add private data to this registry. A phrase of a few words is better than a single word: the longer it is, the better it protects your data.",
+    enterCodeDesc: "The same code you chose the first time — needed to decrypt the private data already stored here.",
+    createCodeBtn: "Create code",
+    unlockBtn: "Unlock",
+    emptyCodeError: "Enter a code.",
+    codesDontMatch: "The two codes don't match.",
+
+    newSupplierTitle: "New supplier",
+    supplierNameLabel: "Supplier name",
+    supplierNamePlaceholder: "E.g. Acme Precision Ltd",
+    supplierPublicTitle: "Name publicly visible",
+    supplierPublicDesc: "If off, the name stays encrypted — only you can see it",
+    createSupplierBtn: "Create supplier",
+
+    newEvaluationTitle: "New evaluation",
+    evaluationDateLabel: "Date the evaluation refers to",
+    documentLabel: "Attached document (optional)",
+    documentHint: "Follows the same public/private choice as this evaluation.",
+    documentLocked: "Attaching a document requires the Gold plan.",
+    noteLabel: "Notes",
+    notePlaceholder: "Optional remarks",
+    makePublicTitle: "Make this evaluation public",
+    makePublicDesc: "Anyone will be able to read it, forever",
+    makePublicWarning: "Once made public, this evaluation is readable by anyone, forever. Even if you switch it back later, content already published remains recoverable by anyone who already downloaded it.",
+    saveEvaluationBtn: "Save evaluation",
+    changeImageBtn: "Change image",
+    previousValueLabel: "· previous: {value}",
+    backToEditBtn: "Back to edit",
+    confirmAndSaveBtn: "Confirm and save",
+    errImageCustomizationNotAllowed: "Custom images require the Silver plan or higher.",
+
+    verifying: "Verifying…",
+    wrongCode: "Wrong code — it doesn't match the private data already stored in this registry.",
+
+    yourRegistries: "Your Registries",
+    usedOfTier: "{count} of {max} included in your plan",
+    registryFallbackName: "Registry #{index}",
+    openBtn: "Open",
+    noMembershipTitle: "No active Membership",
+    noMembershipDesc: "Creating a registry requires an active ChainIntegrate Membership (Bronze or higher)<br/>linked to this profile.",
+    mintFirstTitle: "Create your first registry",
+    mintNewTitle: "New registry",
+    mintLabelLabel: 'Label (e.g. "Service suppliers")',
+    mintLabelPlaceholder: "A name to recognize it by",
+    mintBtn: "Create registry",
+    maxRegistriesReached: "You've reached the maximum number of registries on your plan ({max}).",
+    confirmFromWallet: "Confirm in the Universal Profile app…",
+    openExtensionToSign: "Open the Universal Profile extension or app to confirm.",
+    txInProgress: "Saving…",
+    txPendingConfirmation: "Sent, waiting for confirmation — this can take a few seconds.",
+    registryMintedOpening: "Registry created, opening…",
+    noRegistryFound: "Registry not found.",
+
+    backToRegistries: "← Your registries",
+    technicalDetails: "Technical details",
+    registryIdLabel: "Registry identifier",
+    evaluationNumber: "Evaluation no. {id}",
+    unnamedRegistry: "Unnamed registry",
+    suppliersCount: "{count} / {max} suppliers",
+    ofMaxSuppliers: "/ {max} suppliers",
+    schemaNotDefined: "Criteria not defined yet",
+    schemaDefined: "Criteria defined",
+    schemaCurrentVersion: "Criteria: version {v}",
+    addSupplierBtn: "+ New supplier",
+
+    defineSchemaTitle: "Define the evaluation criteria",
+    defineSchemaDesc: "Only the first time — later versions can be added without losing history.",
+    criteriaLabel: "Criteria (one per line)",
+    criteriaPlaceholder: "Timeliness\nQuality\nDocumentation\nResponsiveness",
+    minValueLabel: "Minimum value",
+    maxValueLabel: "Maximum value",
+    saveSchemaBtn: "Save criteria",
+    atLeastOneCriterion: "Enter at least one criterion.",
+    minLessThanMax: "The minimum must be lower than the maximum.",
+
+    membershipRevokedWarning: "Your Membership is no longer active. You can't create new registries or suppliers, change the image or add evaluations; data already saved remains available.",
+    addEvaluationLocked: "Not available: your Membership is no longer active.",
+
+    noSuppliersYet: "No suppliers yet — start by adding one.",
+    loadingLabel: "…loading…",
+    supplierFallbackName: "Supplier #{id}",
+    publicNameBadge: "Public name",
+    privateNameBadge: "Private name",
+    addEvaluationBtn: "+ Evaluation",
+    supplierDecryptFail: "Supplier #{id} (unable to decrypt)",
+
+    noEvaluationsYet: "No evaluations yet.",
+    loadingEllipsis: "Loading…",
+    correctsHash: " · corrects no. {id}",
+    correctBtn: "Correct",
+    discloseBtn: "Share confidentially",
+    discloseTitle: "Share evaluation no. {id} confidentially",
+    discloseDesc: "Creates a link that lets the recipient read only this evaluation, without the registry code and without making it public. The recipient can also verify that the content is identical to what was originally recorded.",
+    discloseIncludeName: "Include the supplier name",
+    discloseIncludeDoc: "Include the attachment",
+    discloseWarning: "The link cannot be revoked: anyone who receives it, even forwarded, will be able to read this evaluation forever. Share it only with whoever needs to read it.",
+    discloseConfirmBtn: "Create link",
+    discloseLinkLabel: "Link to send",
+    copyLinkBtn: "Copy link",
+    linkCopiedShort: "Link copied.",
+    closeBtn: "Close",
+    discloseDone: "Sharing recorded. Send the link only to the intended person.",
+    disclosedTimes: "Shared confidentially {n} time(s).",
+    showDisclosureLinks: "Show links",
+    disclosureNumber: "Sharing no. {id}",
+    disclosureLinkUnavailable: "link not recoverable",
+    correctionTitle: "Correct evaluation no. {id}",
+    correctionInfo: "The new evaluation will replace no. {id}. The original stays in the history, visible but no longer counted in charts and averages.",
+    correctionSummary: "Replaces evaluation no. {id}",
+    supersededByLabel: "Replaced by evaluation no. {id}",
+    correctionPublicWarning: "The original evaluation no. {id} is public and stays public forever: a private correction does not hide it.",
+    attachmentReused: "attachment of the original evaluation",
+    attachmentNotCarried: "The original attachment ({name}) is not carried over because the public/private choice changed: upload it again if needed.",
+    publicBadge: "Public",
+    privateBadge: "Private",
+    registeredOn: "Registered on {date}",
+    referredTo: "Referring to {date}",
+    unlockToSee: "Unlock to view",
+    unreadableContent: "Unable to read the content ({reason}).",
+    publicDataReason: "public data",
+    wrongKeyReason: "wrong key or corrupted data",
+    downloading: "Downloading…",
+    openError: "Error opening",
+
+    encryptingUploading: "Encrypting and uploading…",
+    pleaseWait: "Please wait…",
+    rangeError: '"{label}" must be between {min} and {max} (you entered {value}).',
+    emptyValue: "an empty value",
+    dateRequired: "Enter the date this evaluation refers to.",
+    privateContent: "Private content.",
+    haveCodeBtn: "I have the registry code",
+
+    errRegistryAlreadyMinted: "You already have a registry on this profile.",
+    errNoRecognizedMembership: "No active Membership on this profile.",
+    errSupplierLimitReached: "You've reached the maximum number of suppliers on your plan.",
+    errParamLimitReached: "Too many criteria for your current plan.",
+    errNotRegistryOwner: "Only the registry owner can perform this action.",
+    errSelectiveDisclosureNotAllowed: "Confidential sharing requires the Gold plan or higher.",
+    errGeneric: "Operation failed: {msg}",
+    errUnknown: "unknown error",
+
+    errChallengeUnavailable: "Unable to start the secure sign-in with the server. Please try again shortly.",
+    errAuthRejected: "Sign-in rejected by the server ({reason}).",
+    errUploadFailed: "File upload failed (error {status}).",
+    errReadFailed: "Could not read the file.",
+
+    dateLocale: "en-GB",
+  },
+};
+
+function t(key, vars) {
+  let str = I18N[LANG][key];
+  if (str === undefined) { console.warn("Missing i18n key:", key); return key; }
+  if (vars) {
+    for (const [k, v] of Object.entries(vars)) {
+      str = str.replaceAll(`{${k}}`, v);
+    }
+  }
+  return str;
+}
+
+// Traduce gli elementi statici presenti gia' nell'HTML al caricamento
+// (quelli che JS non riscrive mai, o li riscrive solo dopo un'azione
+// dell'utente — qui fissiamo il valore iniziale corretto).
+function applyStaticTranslations() {
+  document.title = t("pageTitle");
+  document.documentElement.lang = LANG;
+  $("btn-connect").textContent = t("connectButton");
+  $("btn-logout").textContent = t("logoutBtn");
+  $("link-how-it-works").textContent = t("howItWorksLabel");
+  $("footer-rights").textContent = t("footerRights");
+  $("footer-consulting").textContent = t("footerConsulting");
+  $("footer-telegram").textContent = t("footerTelegram");
+  $("initial-loading").textContent = t("connecting");
+
+  $("pin-input-label").textContent = t("secretCode");
+  $("pin-input").placeholder = t("pinPlaceholder");
+  $("pin-confirm-label").textContent = t("repeatCode");
+  $("pin-confirm-input").placeholder = t("repeatCodePlaceholder");
+  $("pin-modal-warning").textContent = t("pinWarningText");
+  $("pin-cancel").textContent = t("cancel");
+  $("pin-confirm").textContent = t("continueBtn");
+
+  $("supplier-modal-title").textContent = t("newSupplierTitle");
+  $("supplier-name-label").textContent = t("supplierNameLabel");
+  $("supplier-name").placeholder = t("supplierNamePlaceholder");
+  $("supplier-public-title").textContent = t("supplierPublicTitle");
+  $("supplier-public-desc").textContent = t("supplierPublicDesc");
+  $("supplier-cancel").textContent = t("cancel");
+  $("supplier-confirm").textContent = t("createSupplierBtn");
+
+  $("evaluation-modal-title").textContent = t("newEvaluationTitle");
+  $("evaluation-date-label").textContent = t("evaluationDateLabel");
+  $("evaluation-document-label").textContent = t("documentLabel");
+  $("evaluation-document-hint").textContent = t("documentHint");
+  $("evaluation-document-locked").textContent = t("documentLocked");
+  $("evaluation-note-label").textContent = t("noteLabel");
+  $("evaluation-note").placeholder = t("notePlaceholder");
+  $("evaluation-public-title").textContent = t("makePublicTitle");
+  $("evaluation-public-desc").textContent = t("makePublicDesc");
+  $("evaluation-public-warning").textContent = t("makePublicWarning");
+  $("evaluation-cancel").textContent = t("cancel");
+  $("evaluation-review-btn").textContent = t("saveEvaluationBtn");
+  $("evaluation-back-to-edit").textContent = t("backToEditBtn");
+  $("evaluation-confirm").textContent = t("confirmAndSaveBtn");
+}
+
+
+// =======================================================================
+// CRIPTOGRAFIA — PBKDF2 (SubtleCrypto nativo) + AES-256-GCM
+// Stesso identico flusso dimostrato in chat: JSON in chiaro -> cifrato ->
+// byte grezzi su IPFS. Sale = keccak256(tokenId del registro + indirizzo
+// contratto) — NON piu' solo l'indirizzo del proprietario, perche' con
+// piu' registri per indirizzo (V2) quello da solo non basta a distinguerli:
+// stesso PIN su registri diversi produce comunque chiavi diverse, perche'
+// il tokenId cambia. Letto sempre dalla catena al momento dell'apertura
+// del registro, mai da uno stato locale che potrebbe sbagliarsi.
+// =======================================================================
+
+async function deriveKey(pin, tokenId, contractAddress) {
+  const saltSource = ethers.getBytes(
+    ethers.keccak256(ethers.concat([
+      ethers.getBytes(tokenId),
+      ethers.getBytes(contractAddress),
+    ]))
+  );
+  const pinBytes = new TextEncoder().encode(pin);
+  const baseKey = await crypto.subtle.importKey("raw", pinBytes, "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    {
+      name: "PBKDF2",
+      salt: saltSource,
+      iterations: CONFIG.KDF_ITERATIONS,
+      hash: "SHA-256",
+    },
+    baseKey,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+// Primitive a livello di byte — funzionano su qualunque contenuto binario,
+// non solo JSON. Un documento allegato usa queste direttamente; il JSON
+// di criteri/note passa dagli stessi wrapper di sempre, comportamento
+// identico a prima.
+async function encryptBytes(plainBytes, key) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plainBytes);
+  // formato caricato: iv (12 byte) + ciphertext+tag (GCM li concatena gia')
+  const bytes = new Uint8Array(iv.length + ciphertext.byteLength);
+  bytes.set(iv, 0);
+  bytes.set(new Uint8Array(ciphertext), iv.length);
+
+  const contentHash = ethers.keccak256(plainBytes);
+  return { bytes, contentHash };
+}
+
+async function decryptBytes(bytes, key) {
+  const iv = bytes.slice(0, 12);
+  const ciphertext = bytes.slice(12);
+  const plaintextBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+  return new Uint8Array(plaintextBuf);
+}
+
+// Il contentHash di un JSON privato finisce in chiaro sulla catena. Senza
+// un valore casuale dentro il JSON, chi conosce lo schema (pubblico) o ha
+// una lista di nomi plausibili potrebbe ricalcolare l'hash per tentativi
+// e ricostruire il contenuto senza conoscere il codice segreto. Il sale
+// viaggia DENTRO il blob cifrato: chi decifra lo ritrova e puo' sempre
+// ricalcolare l'hash per verificarne l'integrita'; chi non decifra non
+// ha modo di indovinarlo (256 bit casuali, diversi per ogni scrittura).
+// I JSON scritti prima di questa modifica non hanno "salt" e si leggono
+// esattamente come prima: chi legge usa solo i campi che conosce.
+async function encryptJSON(obj, key) {
+  const salt = ethers.hexlify(crypto.getRandomValues(new Uint8Array(32)));
+  const plaintext = new TextEncoder().encode(JSON.stringify({ ...obj, salt }));
+  return encryptBytes(plaintext, key);
+}
+
+async function decryptJSON(bytes, key) {
+  const plainBytes = await decryptBytes(bytes, key);
+  return JSON.parse(new TextDecoder().decode(plainBytes));
+}
+
+// =======================================================================
+// SESSIONE — challenge/firma/verifica stile SIWE contro il backend, prima
+// di ogni upload. Il token dura 30 minuti (vedi backend/auth.js): lo
+// riusiamo finche' e' valido, evitando di far firmare l'utente ad ogni
+// singolo file caricato.
+// =======================================================================
+async function ensureSession() {
+  const MARGIN_MS = 60 * 1000; // rinnova un po' prima della scadenza reale
+  if (state.sessionToken && state.sessionExpiresAt > Date.now() + MARGIN_MS) {
+    return state.sessionToken;
+  }
+
+  const address = state.registryOwner; // la UP proprietaria del registro, non il visitatore
+  const challengeRes = await fetch("/api/auth/challenge", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ address, lang: LANG }),
+  });
+  if (!challengeRes.ok) {
+    throw new Error(t("errChallengeUnavailable"));
+  }
+  // challengeToken: prova firmata dal server che questa challenge l'ha emessa lui
+  // (nessuno stato lato server, vedi backend/auth.js) — va rimandato con la firma.
+  const { message, challengeToken } = await challengeRes.json();
+
+  // Questo fa comparire la richiesta di firma nell'estensione/app UP.
+  const signature = await state.signer.signMessage(message);
+
+  const verifyRes = await fetch("/api/auth/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ address, signature, message, challengeToken }),
+  });
+  if (!verifyRes.ok) {
+    const body = await verifyRes.json().catch(() => ({}));
+    throw new Error(t("errAuthRejected", { reason: body.error || verifyRes.status }));
+  }
+
+  const { token } = await verifyRes.json();
+  state.sessionToken = token;
+  state.sessionExpiresAt = Date.now() + 30 * 60 * 1000;
+  return token;
+}
+
+// =======================================================================
+// UPLOAD IPFS — passa sempre dal backend con un token di sessione
+// valido. Il backend non vede mai il PIN ne' la chiave, solo byte gia'
+// pronti (cifrati o pubblici) piu' la prova che la UP proprietaria ha
+// autorizzato questa sessione.
+// =======================================================================
+async function uploadToIPFS(bytes) {
+  const token = await ensureSession();
+
+  const form = new FormData();
+  form.append("file", new Blob([bytes]));
+
+  const res = await fetch("/api/ipfs/upload", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      // token scaduto/rifiutato a meta' operazione: invalidiamo la sessione
+      // cosi' il prossimo tentativo ne richiede una nuova, ma non ritentiamo
+      // automaticamente qui per non nascondere l'errore all'utente
+      state.sessionToken = null;
+    }
+    throw new Error(t("errUploadFailed", { status: res.status }));
+  }
+  const { cid } = await res.json();
+  return `ipfs://${cid}`;
+}
+
+// =======================================================================
+// LETTURA FILE IPFS — prima dal nodo ChainIntegrate (ipfs.chainintegrate.it,
+// serve solo i file pinnati da noi), poi, solo se il nodo non ha il file,
+// dal gateway pubblico LUKSO. Il fallback serve per i file caricati quando
+// gli upload passavano ancora da Pinata e non ripinnati sul nodo.
+// Il gateway LUKSO e' un servizio esterno: se il chiamante conosce l'hash
+// on-chain del contenuto (dati pubblici), il file ricevuto da li' viene
+// scartato se non corrisponde. I dati privati non ne hanno bisogno: la
+// cifratura AES-GCM rifiuta gia' da sola un file alterato.
+// =======================================================================
+const IPFS_TIMEOUT_MS = 8000;
+// Il gateway del nodo ha un limite di richieste per IP (Nginx limit_req):
+// oltre il limite risponde 429 (o 503, configurazione precedente). Non e'
+// un "file mancante": si aspetta e si riprova, invece di ripiegare subito
+// sul gateway esterno per un file che il nodo ha.
+const IPFS_RETRY_DELAYS_MS = [500, 1000, 2000];
+
+async function fetchGatewayWithRetry(url, options = {}) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, { ...options, signal: AbortSignal.timeout(IPFS_TIMEOUT_MS) });
+    const throttled = res.status === 429 || res.status === 503;
+    if (!throttled || attempt >= IPFS_RETRY_DELAYS_MS.length) return res;
+    res.body?.cancel().catch(() => {});
+    const retryAfter = Number(res.headers.get("retry-after"));
+    const delay = retryAfter > 0 ? Math.min(retryAfter * 1000, 5000) : IPFS_RETRY_DELAYS_MS[attempt];
+    await new Promise(resolve => setTimeout(resolve, delay));
+  }
+}
+const CID_RE = /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|b[a-z2-7]{50,})$/;
+
+async function fetchFromIPFS(uri, expectedHash) {
+  const cid = String(uri ?? "").replace(/^ipfs:\/\//, "");
+  if (!CID_RE.test(cid)) throw new Error(t("errReadFailed"));
+
+  const sources = [
+    { base: CONFIG.IPFS_GATEWAY, trusted: true },
+    { base: CONFIG.IPFS_FALLBACK_GATEWAY, trusted: false },
+  ];
+  for (const { base, trusted } of sources) {
+    let bytes;
+    try {
+      const res = await fetchGatewayWithRetry(`${base}/ipfs/${cid}`);
+      if (!res.ok) continue;
+      bytes = new Uint8Array(await res.arrayBuffer());
+    } catch {
+      continue; // timeout o rete: prova la fonte successiva
+    }
+    if (!trusted && expectedHash && ethers.keccak256(bytes) !== String(expectedHash).toLowerCase()) {
+      console.warn("Contenuto dal gateway di fallback non corrispondente all'hash on-chain, scartato:", cid);
+      continue;
+    }
+    return bytes;
+  }
+  throw new Error(t("errReadFailed"));
+}
+
+// =======================================================================
+// CONNESSIONE UP — pagina normale, nessun Grid/iframe. L'estensione UP
+// inietta window.lukso su qualunque pagina (standard EIP-1193, come
+// window.ethereum di MetaMask). Con V2 un indirizzo puo' avere PIU'
+// registri — "quale registro sto guardando" arriva da ?tokenId=0x...
+// nell'URL (per condividere un link diretto), oppure, se assente, si
+// scoprono tutti i registri del visitatore e si mostra una lista.
+// =======================================================================
+async function connect(reopenTokenId = null) {
+  if (!window.lukso && state.readOnlyMode && $("read-only-banner")) {
+    // in sola lettura il registro resta visibile: spiego solo cosa serve per accedere
+    $("read-only-banner").textContent = t("noExtension");
+    return;
+  }
+  if (!window.lukso) {
+    renderWelcome(t("noExtension"), false);
+    return;
+  }
+  const btn = $("btn-connect");
+  btn.disabled = true;
+  renderError(t("connecting"));
+  try {
+    await connectAndOpen(reopenTokenId);
+  } catch (e) {
+    renderConnectError(e);
+  }
+}
+
+function initReadProvider() {
+  state.readOnlyProvider = new ethers.JsonRpcProvider(CONFIG.RPC_URL, CONFIG.CHAIN_ID, { batchMaxCount: 1, staticNetwork: true });
+  state.contractReadOnly = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, ABI, state.readOnlyProvider);
+}
+
+// =======================================================================
+// CONSULTAZIONE IN SOLA LETTURA (audit U14) — chi apre il link di un
+// registro (?tokenId=...) lo vede subito, senza estensione e senza
+// accedere: le letture passano comunque dal nostro proxy /api/rpc, non
+// dall'estensione. Si vedono solo i contenuti pubblici; quelli privati
+// restano cifrati ("Ho il codice del registro" per chi lo conosce).
+// Nessuna scrittura possibile: nessun account, nessun signer. Il pulsante
+// "Accedi" in alto porta alla modalita' completa sullo stesso registro.
+// =======================================================================
+async function openReadOnly(tokenId) {
+  renderError(t("connecting"));
+  try {
+    initReadProvider();
+    state.visitorAccount = null;
+    state.signer = null;
+    state.contract = null;
+    state.readOnlyMode = true;
+    await openRegistry(tokenId);
+  } catch (e) {
+    renderConnectError(e);
+  }
+}
+
+function registryLinkFromUrl() {
+  const tokenId = new URLSearchParams(window.location.search).get("tokenId") || "";
+  return /^0x[0-9a-fA-F]{64}$/.test(tokenId) ? tokenId : null;
+}
+
+async function connectAndOpen(reopenTokenId = null) {
+  state.ethersProvider = new ethers.BrowserProvider(window.lukso);
+  const accounts = await state.ethersProvider.send("eth_requestAccounts", []);
+  state.visitorAccount = accounts[0] || null;
+
+  if (!state.visitorAccount) {
+    renderConnectError(new Error(t("noAccount")));
+    return;
+  }
+
+  // Ricarica la pagina se l'utente cambia account o rete nell'estensione:
+  // registrato PRIMA del controllo di rete, cosi' dopo il cambio di rete
+  // (anche dal pulsante qui sotto) la pagina riparte da sola.
+  if (typeof window.lukso.on === "function") {
+    window.lukso.on("accountsChanged", () => window.location.reload());
+    window.lukso.on("chainChanged", () => window.location.reload());
+  }
+
+  // Audit U3: le letture passano dal nostro RPC (sempre mainnet), ma i
+  // salvataggi li firma l'estensione sulla SUA rete — su una rete diversa
+  // fallirebbero con errori incomprensibili. Meglio fermarsi subito.
+  const network = await state.ethersProvider.getNetwork();
+  if (Number(network.chainId) !== CONFIG.CHAIN_ID) {
+    renderWrongNetwork(Number(network.chainId));
+    return;
+  }
+
+  state.signer = await state.ethersProvider.getSigner();
+  state.contract = new ethers.Contract(CONFIG.REGISTRY_CONTRACT, ABI, state.signer);
+  // Le LETTURE (queryFilter su storico eventi, chiamate view) usano un
+  // provider NOSTRO (Blockscout), non quello dell'estensione UP — quello
+  // dell'utente puo' essere un nodo con profondita' di conservazione
+  // limitata ("Receipt not available" su blocchi vecchi), fuori dal
+  // nostro controllo. Solo le SCRITTURE (che richiedono la sua firma)
+  // restano legate a window.lukso tramite state.signer/state.contract.
+  // staticNetwork: la rete e' nota (LUKSO mainnet), niente riconoscimento
+  // automatico — se il nodo e' momentaneamente irraggiungibile, ethers
+  // altrimenti resta bloccato nel tentativo di rilevare la rete e anche
+  // "Riprova" continuerebbe a fallire (audit U10).
+  initReadProvider();
+  state.readOnlyMode = false;
+
+  $("btn-connect").textContent = shortAddr(state.visitorAccount);
+  $("btn-connect").disabled = true;
+  $("btn-logout").style.display = "inline-block";
+
+  const params = new URLSearchParams(window.location.search);
+  const tokenIdParam = reopenTokenId || params.get("tokenId");
+
+  if (tokenIdParam && /^0x[0-9a-fA-F]{64}$/.test(tokenIdParam)) {
+    await openRegistry(tokenIdParam);
+  } else {
+    await renderRegistrySelector();
+  }
+}
+
+// Contenuto delle valutazioni (criteri, note) puo' finire in innerHTML —
+// e con ?tokenId= chiunque puo' visitare il registro pubblico di un altro,
+// quindi un contenuto malevolo scritto da un proprietario finirebbe
+// eseguito nel browser di un visitatore ignaro. Mai interpolare testo
+// utente in innerHTML senza passare da qui.
+function formatDate(isoDate) {
+  // isoDate atteso in formato YYYY-MM-DD (dall'input type="date")
+  const d = new Date(isoDate + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return isoDate;
+  return d.toLocaleDateString(t("dateLocale"), { year: "numeric", month: "long", day: "numeric" });
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = String(str ?? "");
+  return div.innerHTML;
+}
+
+function shortAddr(addr) {
+  if (!addr) return "";
+  return addr.slice(0, 6) + "…" + addr.slice(-4);
+}
+
+// =======================================================================
+// GATE DI SBLOCCO OBBLIGATORIO — cerca un contenuto privato gia'
+// esistente (fornitore o valutazione) per poter VERIFICARE il codice
+// inserito, non solo chiederlo. Senza un dato contro cui verificare, un
+// codice sbagliato verrebbe accettato in silenzio e produrrebbe scritture
+// cifrate con una chiave diversa dal resto del registro — scoperto solo
+// molto piu' tardi, quando qualcosa smette di decifrarsi.
+// =======================================================================
+async function findPrivateValidationTarget(tokenId) {
+  const { suppliers, evaluations } = await registryEvents(tokenId);
+  const privateSupplier = suppliers.find(ev => !ev.args.isNamePublic);
+  if (privateSupplier) return privateSupplier.args.nameUri;
+
+  const privateEval = evaluations.find(ev => !ev.args.isPublic);
+  if (privateEval) return privateEval.args.uri;
+
+  return null; // nessun contenuto privato ancora — niente contro cui verificare
+}
+
+async function renderUnlockGate(tokenId) {
+  const root = $("app-root");
+  const validationUri = await findPrivateValidationTarget(tokenId);
+  const isFirstTime = !validationUri;
+
+  root.innerHTML = `
+    <div class="empty-state">
+      <h3>${isFirstTime ? t("createCodeTitle") : t("enterCodeTitle")}</h3>
+      <p class="muted">${isFirstTime ? t("createCodeDesc") : t("enterCodeDesc")}</p>
+      ${isFirstTime ? `
+        <div class="warning-box" style="max-width:360px; margin:12px auto 0;">
+          ${t("pinWarningText")}
+        </div>
+      ` : ""}
+      <div style="max-width:320px; margin:16px auto 0; text-align:left;">
+        <label for="gate-pin-input">${t("secretCode")}</label>
+        <input type="password" id="gate-pin-input" autocomplete="off" />
+        ${isFirstTime ? `
+          <label for="gate-pin-confirm">${t("repeatCode")}</label>
+          <input type="password" id="gate-pin-confirm" autocomplete="off" />
+        ` : ""}
+      </div>
+      <button class="btn" id="gate-unlock-btn" style="margin-top:14px;">${isFirstTime ? t("createCodeBtn") : t("unlockBtn")}</button>
+      <div id="gate-status" class="muted" style="margin-top:10px;"></div>
+    </div>
+  `;
+
+  $("gate-unlock-btn").addEventListener("click", async () => {
+    const pin = $("gate-pin-input").value;
+    const btn = $("gate-unlock-btn");
+    const status = $("gate-status");
+
+    if (!pin) { status.textContent = t("emptyCodeError"); return; }
+    if (isFirstTime && pin !== $("gate-pin-confirm").value) {
+      status.textContent = t("codesDontMatch");
+      return;
+    }
+
+    btn.disabled = true;
+    status.textContent = t("verifying");
+
+    const candidateKey = await deriveKey(pin, tokenId, CONFIG.REGISTRY_CONTRACT);
+
+    if (!isFirstTime) {
+      try {
+        const bytes = await fetchFromIPFS(validationUri);
+        await decryptJSON(bytes, candidateKey);
+      } catch {
+        status.textContent = t("wrongCode");
+        btn.disabled = false;
+        return;
+      }
+    }
+
+    state.cryptoKey = candidateKey;
+    await runSafely(() => renderDashboard());
+  });
+}
+
+// =======================================================================
+// APERTURA DI UN REGISTRO SPECIFICO — il proprietario si legge SEMPRE
+// dalla catena (tokenOwnerOf), mai assunto dall'indirizzo che ha
+// mintato: con V2 l'unico modo affidabile di sapere "chi possiede questo
+// tokenId" e' chiederlo al contratto.
+// =======================================================================
+async function openRegistry(tokenId) {
+  let owner;
+  try {
+    owner = await state.contractReadOnly.tokenOwnerOf(tokenId);
+  } catch (e) {
+    renderError(t("noRegistryFound"));
+    return;
+  }
+  state.tokenId = tokenId;
+  state.registryOwner = owner;
+  state.isOwner = !!state.visitorAccount && state.visitorAccount.toLowerCase() === owner.toLowerCase();
+
+  // L'etichetta scelta al mint non e' in nessun getter — va ripresa
+  // dall'evento RegistryMinted di questo specifico tokenId (filtro sul
+  // primo parametro indicizzato, che e' proprio il tokenId).
+  try {
+    const minted = (await mintedEvents()).find(ev => ev.args.tokenId.toLowerCase() === tokenId.toLowerCase());
+    state.registryLabel = minted?.args?.label || null;
+  } catch {
+    state.registryLabel = null;
+  }
+
+  state.cryptoKey = null; // mai ereditare la chiave di un registro precedente
+
+  if (state.isOwner) {
+    // Il proprietario DEVE sbloccare prima di vedere qualunque cosa — non
+    // solo per comodita', ma perche' e' l'unico punto in cui possiamo
+    // verificare il codice contro un dato privato gia' esistente, invece
+    // di scoprire un codice sbagliato solo dopo aver gia' scritto qualcosa
+    // con una chiave diversa dal resto.
+    await renderUnlockGate(tokenId);
+  } else {
+    // Un visitatore non puo' mai decifrare nulla di privato (non conosce
+    // il codice del proprietario) — nessun motivo di fargli vedere un
+    // cancello che non potrebbe comunque superare.
+    await renderDashboard();
+  }
+}
+
+// =======================================================================
+// SCOPERTA DEI REGISTRI DEL VISITATORE — via eventi RegistryMinted
+// filtrati per owner, stesso pattern eth_getLogs gia' in uso ovunque nel
+// resto del progetto. Zero storage on-chain dedicato a "quali registri
+// ha questo indirizzo": si ricostruisce sempre dai log.
+// =======================================================================
+async function renderRegistrySelector(forceList = false) {
+  // Blockscout non gestisce correttamente un filtro con un "buco"
+  // (topics[1]=jolly, topics[2]=valore specifico) — verificato con una
+  // chiamata eth_getLogs diretta, senza passare da ethers: torna vuoto
+  // anche quando gli eventi esistono davvero. Filtro solo per topic0
+  // (RegistryMinted in generale, quello funziona sempre) e seleziono il
+  // proprietario giusto qui, in JavaScript.
+  const allEvents = await mintedEvents();
+  const events = allEvents.filter(
+    ev => ev.args.owner.toLowerCase() === state.visitorAccount.toLowerCase()
+  );
+  // Number(): il contratto restituisce un BigInt, e 0n === 0 e' FALSO in
+  // JavaScript — senza conversione il caso "nessuna Membership" non veniva
+  // mai riconosciuto (audit U1).
+  const [, , , maxRegistriesRaw] = await state.contractReadOnly.getEffectiveLimits(state.visitorAccount);
+  const maxRegistries = Number(maxRegistriesRaw);
+
+  // La scorciatoia "salta direttamente se ce n'e' solo uno" vale solo al
+  // primo accesso (connect()) — non quando l'utente ha esplicitamente
+  // chiesto di vedere il riepilogo cliccando "I tuoi registri".
+  if (events.length === 1 && !forceList) {
+    await openRegistry(events[0].args.tokenId);
+    return;
+  }
+
+  const root = $("app-root");
+  const canMintMore = events.length < maxRegistries;
+
+  root.innerHTML = `
+    ${events.length > 0 ? `
+      <h2 style="margin-bottom:4px;">${t("yourRegistries")}</h2>
+      <p class="muted" style="margin-top:0;">${t("usedOfTier", { count: events.length, max: maxRegistries })}</p>
+      <div class="card">
+        ${events.map(ev => `
+          <div class="row-between" style="padding:10px 0; border-top:1px solid var(--powder-line);">
+            <div class="row" style="gap:10px; align-items:center;">
+              <div id="list-image-${ev.args.tokenId}" style="width:36px; height:36px; border-radius:6px; overflow:hidden; background:var(--powder); flex-shrink:0; display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--blueprint); font-size:14px;">
+                ${escapeHtml((ev.args.label || "?").charAt(0).toUpperCase())}
+              </div>
+              <div>
+                <strong>${escapeHtml(ev.args.label || t("registryFallbackName", { index: ev.args.index }))}</strong>
+              </div>
+            </div>
+            <button class="btn btn-ghost open-registry-btn" data-token-id="${ev.args.tokenId}">${t("openBtn")}</button>
+          </div>
+        `).join("")}
+      </div>
+    ` : ""}
+    ${maxRegistries === 0 ? `
+      <div class="empty-state">
+        <h3>${t("noMembershipTitle")}</h3>
+        <p class="muted">${t("noMembershipDesc")}</p>
+      </div>
+    ` : canMintMore ? `
+      <div class="card">
+        <h3>${events.length === 0 ? t("mintFirstTitle") : t("mintNewTitle")}</h3>
+        <label for="mint-label">${t("mintLabelLabel")}</label>
+        <input type="text" id="mint-label" placeholder="${t("mintLabelPlaceholder")}" />
+        <button class="btn" id="btn-mint" style="margin-top:12px;">${t("mintBtn")}</button>
+        <div id="mint-status" class="muted" style="margin-top:8px;"></div>
+      </div>
+    ` : `<p class="muted">${t("maxRegistriesReached", { max: maxRegistries })}</p>`}
+  `;
+
+  root.querySelectorAll(".open-registry-btn").forEach(btn => {
+    btn.addEventListener("click", () => runSafely(() => openRegistry(btn.dataset.tokenId)));
+  });
+
+  for (const ev of events) {
+    loadListRegistryImage(ev.args.tokenId);
+  }
+
+  if ($("btn-mint")) {
+    $("btn-mint").addEventListener("click", async () => {
+      const label = $("mint-label").value.trim() || t("unnamedRegistry");
+      const btn = $("btn-mint");
+      const status = $("mint-status");
+      btn.disabled = true;
+      btn.textContent = t("confirmFromWallet");
+      status.textContent = t("openExtensionToSign");
+      try {
+        const tx = await state.contract.mintRegistry(label);
+        btn.textContent = t("txInProgress");
+        status.textContent = t("txPendingConfirmation");
+        const receipt = await tx.wait();
+        invalidateEvents(MINTED_EVENTS_KEY, receipt?.blockNumber); // il nuovo registro deve comparire subito
+        status.textContent = t("registryMintedOpening");
+        const minted = receipt.logs
+          .map(l => { try { return state.contract.interface.parseLog(l); } catch { return null; } })
+          .find(e => e && e.name === "RegistryMinted");
+        await openRegistry(minted.args.tokenId);
+      } catch (e) {
+        status.textContent = explainRevert(e);
+        btn.disabled = false;
+        btn.textContent = t("mintBtn");
+      }
+    });
+  }
+}
+
+// =======================================================================
+// DASHBOARD PRINCIPALE
+// =======================================================================
+async function renderDashboard() {
+  const [maxSuppliers, maxParams, canDiscloseSelectively, maxRegistries, canCustomizeImage] =
+    await state.contractReadOnly.getEffectiveLimits(state.registryOwner);
+  // "Revocato" = nessuna Membership accettata riconosce piu' questo indirizzo
+  // in nessun tier (tutti i campi a zero/false). Il contratto stesso NON
+  // impedisce addEvaluation ne' proposeSuccessor/confirmSuccessor in questo
+  // stato: il blocco per queste due va fatto qui, lato UI.
+  state.canDisclose = canDiscloseSelectively; // condivisione riservata (Gold, audit U13)
+  state.isRevoked = maxSuppliers === 0n && maxParams === 0n && !canDiscloseSelectively
+    && maxRegistries === 0n && !canCustomizeImage;
+  const supplierCount = await state.contractReadOnly.supplierCount(state.tokenId);
+  const schemaVersions = await state.contractReadOnly.schemaVersionsCount(state.tokenId);
+
+  // Criteri configurati, mostrati subito — prima si vedevano solo indirettamente
+  // aprendo il modale di valutazione, ora sono visibili appena apri il registro.
+  let schemaDetails = null;
+  if (schemaVersions > 0n) {
+    const [paramNames, minValue, maxValue] = await state.contractReadOnly.getSchema(state.tokenId, schemaVersions - 1n);
+    schemaDetails = { paramNames, minValue, maxValue };
+    // Salvato anche in state: i grafici (renderSupplierChart) lo usano per
+    // ancorare l'asse dei valori al range VERO dello schema, invece di
+    // auto-scalare sui soli dati osservati (che esagera differenze piccole
+    // se i punteggi restano tutti in una fascia stretta del range totale).
+    state.schemaMinValue = Number(minValue);
+    state.schemaMaxValue = Number(maxValue);
+  }
+
+  const root = $("app-root");
+  root.innerHTML = `
+    <div class="row-between">
+      <div class="row" style="align-items:flex-start; gap:12px;">
+        <div id="registry-image-box" style="width:56px; height:56px; border-radius:8px; overflow:hidden; background:var(--powder); flex-shrink:0; display:flex; align-items:center; justify-content:center; font-weight:700; color:var(--blueprint);">
+          ${escapeHtml((state.registryLabel || "?").charAt(0).toUpperCase())}
+        </div>
+        <div>
+          ${state.readOnlyMode ? "" : `<button class="btn btn-ghost" id="btn-back-to-list" style="padding:6px 12px; font-size:13px; margin-bottom:10px;">${t("backToRegistries")}</button>`}
+          <h2 style="margin:0;">${escapeHtml(state.registryLabel || t("unnamedRegistry"))}</h2>
+          <details class="muted" style="font-size:12px; margin-top:4px;">
+            <summary style="cursor:pointer;">${t("technicalDetails")}</summary>
+            <div>${t("registryIdLabel")}:</div>
+            <div class="mono">${state.tokenId}</div>
+          </details>
+        </div>
+      </div>
+      <div style="text-align:right;">
+        <button class="btn btn-ghost" id="btn-share-link" style="padding:6px 12px; font-size:13px;">${t("shareLinkBtn")}</button>
+        <div id="share-link-status" class="muted" style="font-size:12px; margin-top:4px; max-width:260px;"></div>
+      </div>
+    </div>
+    ${state.readOnlyMode ? `
+      <div class="warning-box" id="read-only-banner" style="margin-top:12px; background:var(--powder); border-color:var(--powder-line); color:var(--ink);">${t("readOnlyBanner")}</div>
+    ` : ""}
+    ${state.isOwner && canCustomizeImage ? `
+      <div style="margin-top:8px;">
+        <input type="file" id="registry-image-input" accept="image/*" style="display:none;" />
+        <button class="btn btn-ghost" id="btn-change-image" style="padding:4px 10px; font-size:12px;">${t("changeImageBtn")}</button>
+        <span id="registry-image-status" class="muted" style="font-size:12px; margin-left:8px;"></span>
+      </div>
+    ` : ""}
+    ${state.isOwner && state.isRevoked ? `
+      <div class="warning-box" style="margin-top:12px;">${t("membershipRevokedWarning")}</div>
+    ` : ""}
+
+    <div class="card" style="margin-top:20px;">
+      <div class="row-between">
+        <div><strong>${supplierCount}</strong> <span class="muted">${t("ofMaxSuppliers", { max: maxSuppliers })}</span></div>
+        ${schemaVersions === 0n
+          ? `<span class="badge badge-amber">${t("schemaNotDefined")}</span>`
+          : schemaVersions === 1n
+            ? `<span class="badge badge-public">${t("schemaDefined")}</span>`
+            : `<span class="badge badge-public">${t("schemaCurrentVersion", { v: schemaVersions })}</span>`}
+      </div>
+      ${schemaDetails ? `
+        <div class="muted" style="font-size:12px; margin-top:8px;">
+          <div><strong>${t("metricsLabel")}:</strong> ${schemaDetails.paramNames.map(p => escapeHtml(p)).join(", ")}</div>
+          <div style="margin-top:2px;"><strong>${t("scoreRangeLabel")}:</strong> ${t("scoreRangeValue", { min: schemaDetails.minValue, max: schemaDetails.maxValue })}</div>
+        </div>
+      ` : ""}
+    </div>
+
+    ${schemaVersions === 0n && state.isOwner ? renderSchemaSetup() : ""}
+    ${schemaVersions > 0n ? `<div id="suppliers-list"></div>` : ""}
+    ${schemaVersions > 0n && state.isOwner ? `<button class="btn" id="btn-add-supplier" style="margin-top:8px;" ${state.isRevoked ? "disabled" : ""}>${t("addSupplierBtn")}</button>` : ""}
+    <div id="status-line"></div>
+  `;
+
+  if (schemaVersions === 0n && state.isOwner) wireSchemaSetup();
+  if (schemaVersions > 0n) {
+    await renderSuppliers();
+    if (state.isOwner && !state.isRevoked) $("btn-add-supplier").addEventListener("click", openSupplierModal);
+  }
+  if ($("btn-back-to-list")) $("btn-back-to-list").addEventListener("click", () => {
+    state.cryptoKey = null; // si esce dal registro, la chiave non deve sopravvivere al cambio contesto
+    runSafely(() => renderRegistrySelector(true));
+  });
+  $("btn-share-link").addEventListener("click", () => shareRegistryLink(state.tokenId));
+
+  loadRegistryImage();
+  if (state.isOwner && canCustomizeImage) {
+    $("btn-change-image").addEventListener("click", () => $("registry-image-input").click());
+    $("registry-image-input").addEventListener("change", handleRegistryImageChange);
+  }
+}
+
+// L'immagine del registro e' sempre pubblica (e' un'identita' visiva, non
+// un dato sensibile — non avrebbe senso cifrare un logo). Nessun toggle
+// pubblico/privato qui, a differenza di fornitori e valutazioni.
+// Stessa logica di loadRegistryImage(), ma per una voce della lista
+// registri (dove il segnaposto e' l'iniziale dell'etichetta, non un
+// registro "aperto" con state.tokenId — qui il tokenId arriva per
+// parametro, uno per ciascuna riga della lista).
+async function loadListRegistryImage(tokenId) {
+  const box = $(`list-image-${tokenId}`);
+  if (!box) return;
+  try {
+    const [uri, hash] = await state.contractReadOnly.getRegistryImage(tokenId);
+    if (!uri) return;
+    const bytes = await fetchFromIPFS(uri, hash);
+    const blob = new Blob([bytes]);
+    const blobUrl = URL.createObjectURL(blob);
+    box.innerHTML = `<img src="${blobUrl}" style="width:100%; height:100%; object-fit:cover;" />`;
+  } catch {
+    // nessuna immagine o lettura fallita: resta l'iniziale, nessun errore mostrato
+  }
+}
+
+async function loadRegistryImage() {
+  const box = $("registry-image-box");
+  if (!box) return;
+  try {
+    const [uri, hash] = await state.contractReadOnly.getRegistryImage(state.tokenId);
+    if (!uri) return; // resta l'iniziale gia' disegnata come segnaposto
+    const bytes = await fetchFromIPFS(uri, hash);
+    const blob = new Blob([bytes]);
+    const blobUrl = URL.createObjectURL(blob);
+    box.innerHTML = `<img src="${blobUrl}" style="width:100%; height:100%; object-fit:cover;" />`;
+  } catch {
+    // nessuna immagine impostata o lettura fallita: resta il segnaposto, nessun errore mostrato
+  }
+}
+
+async function handleRegistryImageChange(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const status = $("registry-image-status");
+  const btn = $("btn-change-image");
+  btn.disabled = true;
+  status.textContent = t("encryptingUploading"); // qui "cifratura" non si applica (e' pubblica), ma il testo copre comunque "upload in corso"
+
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const hash = ethers.keccak256(bytes);
+    const uri = await uploadToIPFS(bytes);
+
+    status.textContent = t("confirmFromWallet");
+    const tx = await state.contract.setRegistryImage(state.tokenId, uri, hash);
+    status.textContent = t("txInProgress");
+    await tx.wait();
+
+    status.textContent = "";
+    await loadRegistryImage();
+  } catch (err) {
+    status.textContent = explainRevert(err);
+  } finally {
+    btn.disabled = false;
+    e.target.value = "";
+  }
+}
+
+function renderSchemaSetup() {
+  return `
+    <div class="card">
+      <h3>${t("defineSchemaTitle")}</h3>
+      <p class="muted">${t("defineSchemaDesc")}</p>
+      <label>${t("criteriaLabel")}</label>
+      <textarea id="schema-params" rows="4" placeholder="${t("criteriaPlaceholder")}"></textarea>
+      <div class="row" style="margin-top:10px;">
+        <div style="flex:1;">
+          <label>${t("minValueLabel")}</label>
+          <input type="number" id="schema-min" value="1" />
+        </div>
+        <div style="flex:1;">
+          <label>${t("maxValueLabel")}</label>
+          <input type="number" id="schema-max" value="10" />
+        </div>
+      </div>
+      <button class="btn" id="btn-save-schema" style="margin-top:14px;">${t("saveSchemaBtn")}</button>
+      <div id="schema-status" class="muted" style="margin-top:8px;"></div>
+    </div>`;
+}
+
+function wireSchemaSetup() {
+  $("btn-save-schema").addEventListener("click", async () => {
+    const params = $("schema-params").value.split("\n").map(s => s.trim()).filter(Boolean);
+    const min = BigInt($("schema-min").value);
+    const max = BigInt($("schema-max").value);
+    if (params.length === 0) { $("schema-status").textContent = t("atLeastOneCriterion"); return; }
+    if (min >= max) { $("schema-status").textContent = t("minLessThanMax"); return; }
+
+    const btn = $("btn-save-schema");
+    const status = $("schema-status");
+    btn.disabled = true;
+    btn.textContent = t("confirmFromWallet");
+    status.textContent = t("openExtensionToSign");
+    try {
+      const tx = await state.contract.defineSchema(state.tokenId, params, min, max);
+      btn.textContent = t("txInProgress");
+      status.textContent = t("txPendingConfirmation");
+      await tx.wait();
+      await renderDashboard();
+    } catch (e) {
+      status.textContent = explainRevert(e);
+      btn.disabled = false;
+      btn.textContent = t("saveSchemaBtn");
+    }
+  });
+}
+
+// =======================================================================
+// FORNITORI — lettura via eventi (getLogs), non via storage
+// =======================================================================
+async function renderSuppliers() {
+  const events = (await registryEvents(state.tokenId)).suppliers;
+
+  const container = $("suppliers-list");
+  if (!container) {
+    // La UI e' stata ri-renderizzata (es. un'altra azione dell'utente) mentre
+    // questa chiamata era ancora in corso — il pannello a cui doveva scrivere
+    // non esiste piu'. Non e' un errore da segnalare, il dato verra'
+    // ridisegnato correttamente dal prossimo render che lo riguarda.
+    return;
+  }
+  if (events.length === 0) {
+    container.innerHTML = `<div class="empty-state">${t("noSuppliersYet")}</div>`;
+    return;
+  }
+
+  container.innerHTML = "";
+  for (const ev of events) {
+    const { supplierId, nameHash, nameUri, isNamePublic } = ev.args;
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `
+      <div class="row-between">
+        <h3 id="supplier-name-${supplierId}">
+          ${isNamePublic ? t("loadingLabel") : t("supplierFallbackName", { id: supplierId })}
+        </h3>
+        <span class="badge ${isNamePublic ? "badge-public" : "badge-private"}">
+          ${isNamePublic ? t("publicNameBadge") : t("privateNameBadge")}
+        </span>
+      </div>
+      <div id="chart-${supplierId}"></div>
+      <div class="row-between" style="margin-top:10px; padding-top:10px; border-top:1px solid var(--powder-line);">
+        <strong id="supplier-name-repeat-${supplierId}" style="font-size:14px;">
+          ${isNamePublic ? t("loadingLabel") : t("supplierFallbackName", { id: supplierId })}
+        </strong>
+      </div>
+      ${!state.isOwner
+        ? "" /* solo il proprietario scrive: il codice del registro serve a leggere, non a scrivere (audit U18) */
+        : state.isRevoked
+          ? `<div class="muted" style="font-size:12px; margin-top:10px;">${t("addEvaluationLocked")}</div>`
+          : `<button class="btn btn-ghost" data-supplier-id="${supplierId}" style="margin-top:10px;">${t("addEvaluationBtn")}</button>`}
+      <div class="evaluations" id="evaluations-${supplierId}" style="margin-top:12px;"></div>
+    `;
+    container.appendChild(card);
+
+    const addEvalBtn = card.querySelector("button[data-supplier-id]");
+    if (addEvalBtn) addEvalBtn.addEventListener("click", () => openEvaluationModal(supplierId));
+
+    resolveSupplierName(supplierId, nameHash, nameUri, isNamePublic);
+    renderEvaluationsForSupplier(supplierId);
+  }
+}
+
+async function resolveSupplierName(supplierId, nameHash, nameUri, isNamePublic) {
+  const el = $(`supplier-name-${supplierId}`);
+  const elRepeat = $(`supplier-name-repeat-${supplierId}`);
+  try {
+    if (isNamePublic) {
+      const bytes = await fetchFromIPFS(nameUri, nameHash);
+      const { name } = JSON.parse(new TextDecoder().decode(bytes));
+      el.textContent = name;
+      elRepeat.textContent = name;
+    } else if (state.cryptoKey) {
+      const bytes = await fetchFromIPFS(nameUri);
+      const { name } = await decryptJSON(bytes, state.cryptoKey);
+      el.textContent = name;
+      elRepeat.textContent = name;
+    }
+    // se privato e nessuna chiave sbloccata, resta "Fornitore #N" (gia' impostato)
+  } catch (e) {
+    el.textContent = t("supplierDecryptFail", { id: supplierId });
+    elRepeat.textContent = t("supplierDecryptFail", { id: supplierId });
+  }
+}
+
+// =======================================================================
+// VALUTAZIONI
+// =======================================================================
+// =======================================================================
+// GRAFICO ANDAMENTO — un mini SVG disegnato a mano, niente librerie
+// esterne (coerente con "vanilla, zero build step" di tutto il resto).
+// Ascisse = data DI RIFERIMENTO della valutazione (non di registrazione,
+// stesso principio gia' usato per l'ordinamento della lista), ordinate =
+// punteggio. Una linea per ciascun criterio, ricavati dall'unione delle
+// chiavi presenti nei dati gia' risolti — nessuna lettura extra dello
+// schema, funziona anche se lo schema e' cambiato nel tempo (i criteri
+// non piu' in uso semplicemente smettono di comparire).
+// Usa solo le valutazioni gia' decifrate/pubbliche CON una data di
+// riferimento: quelle ancora bloccate (nessuna chiave) non hanno un
+// punto finche' non vengono sbloccate — il grafico si aggiorna da solo
+// alla prossima chiamata, non serve altro codice apposta.
+// =======================================================================
+// Palette scelta per contrasto reciproco (tonalita' ben distanziate sulla
+// ruota colore) — qui ogni criterio ha il proprio grafico a parte, non
+// serve piu' distinguere linee sovrapposte nello stesso disegno, ma
+// tenerle diverse aiuta comunque a riconoscere lo stesso criterio a
+// colpo d'occhio scorrendo piu' fornitori.
+const CHART_COLORS = ["#1D5C9E", "#1E8E5A", "#8B3FA8", "#C23B7A", "#0E8C8C", "#3B4FC2", "#6B7B1F", "#444444"];
+
+// Un mini-grafico a UNA linea — niente piu' rischio di sovrapposizione,
+// il problema non esiste per costruzione quando c'e' una sola linea.
+// Ritorna solo il markup della card (non lo assegna a nessun container),
+// cosi' il chiamante puo' disporne piu' d'uno in griglia.
+
+// Le "tacche" da mostrare sull'asse dei valori — ogni intero se il range
+// e' abbastanza piccolo da restare leggibile (il caso normale, es. 1-10),
+// altrimenti un passo piu' largo "pulito" (1, 2, 5, 10, 20...) per non
+// affollare l'asse quando il range e' enorme (es. fino a 1000 su Gold).
+function computeAxisTicks(axisMin, axisMax) {
+  const range = axisMax - axisMin;
+  if (range <= 0) return [axisMin];
+  if (Number.isInteger(axisMin) && Number.isInteger(axisMax) && range <= 12) {
+    const ticks = [];
+    for (let v = axisMin; v <= axisMax; v++) ticks.push(v);
+    return ticks;
+  }
+  const rawStep = range / 6;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const niceMultipliers = [1, 2, 5, 10];
+  let step = niceMultipliers[niceMultipliers.length - 1] * magnitude;
+  for (const m of niceMultipliers) {
+    if (rawStep <= m * magnitude) { step = m * magnitude; break; }
+  }
+  const ticks = [];
+  for (let v = Math.ceil(axisMin / step) * step; v <= axisMax; v += step) ticks.push(v);
+  if (ticks[ticks.length - 1] !== axisMax) ticks.push(axisMax);
+  return ticks;
+}
+
+function renderMiniChart(label, points, color, axisMin, axisMax, showAllValues = false) {
+  if (points.length < 2) {
+    return `
+      <div class="card" style="padding:10px;">
+        <div style="font-size:11px; font-weight:600; margin-bottom:4px;">${escapeHtml(label)}</div>
+        <p class="muted" style="font-size:11px; margin:0;">${t("notEnoughDataForChart")}</p>
+      </div>
+    `;
+  }
+
+  // Piu' spazio a sinistra per le etichette dell'asse, e un po' piu' in
+  // alto per non tagliare le etichette dei valori sopra i pallini vicini
+  // al massimo del range.
+  const width = 340, height = 140, padL = 28, padR = 10, padT = 16, padB = 8;
+  const plotW = width - padL - padR, plotH = height - padT - padB;
+
+  const dateMs = points.map(p => new Date(p.date + "T00:00:00").getTime());
+  const minDate = Math.min(...dateMs), maxDate = Math.max(...dateMs);
+  const dateSpan = maxDate - minDate || 1;
+
+  const values = points.map(p => p.value);
+  // Range FISSO dello schema, quando disponibile — mostra dove il
+  // punteggio si colloca nel range VERO possibile, non solo rispetto a se
+  // stesso. Un punteggio che oscilla tra 7 e 9 su una scala 1-10 non deve
+  // sembrare occupare tutta l'altezza del grafico: e' una variazione
+  // piccola nel contesto vero, non enorme. Ricade sull'auto-scala solo se
+  // lo schema non e' disponibile per qualche motivo (difensivo).
+  let minVal, maxVal;
+  if (axisMin !== undefined && axisMax !== undefined && axisMin !== null && axisMax !== null) {
+    minVal = axisMin;
+    maxVal = axisMax;
+  } else {
+    minVal = Math.min(...values); maxVal = Math.max(...values);
+    if (minVal === maxVal) { minVal -= 1; maxVal += 1; }
+    const valPad = (maxVal - minVal) * 0.15;
+    minVal -= valPad; maxVal += valPad;
+  }
+
+  const xFor = (ms) => padL + ((ms - minDate) / dateSpan) * plotW;
+  const yFor = (v) => padT + plotH - ((v - minVal) / (maxVal - minVal)) * plotH;
+
+  const coords = points.map((p, idx) => `${xFor(dateMs[idx]).toFixed(1)},${yFor(p.value).toFixed(1)}`).join(" ");
+  const dots = points.map((p, idx) =>
+    `<circle cx="${xFor(dateMs[idx]).toFixed(1)}" cy="${yFor(p.value).toFixed(1)}" r="3" fill="${color}" />`
+  ).join("");
+
+  // Ogni valore reale marcato accanto al proprio pallino, non solo
+  // l'ultimo — leggibile senza dover indovinare dalla sola posizione
+  // sull'asse. Etichetta sopra il punto, salvo il primo/ultimo punto
+  // dell'intervallo dove sposto leggermente per non uscire dal bordo.
+  const valueLabels = showAllValues
+    ? points.map((p, idx) => {
+        const x = xFor(dateMs[idx]);
+        const anchor = idx === 0 ? "start" : idx === points.length - 1 ? "end" : "middle";
+        return `<text x="${x.toFixed(1)}" y="${(yFor(p.value) - 7).toFixed(1)}" text-anchor="${anchor}" font-size="9" font-weight="600" fill="${color}">${p.value.toFixed(1)}</text>`;
+      }).join("")
+    : "";
+
+  const axisTicks = computeAxisTicks(minVal, maxVal);
+  const axisTicksSvg = axisTicks.map(v => {
+    const y = yFor(v);
+    return `
+      <text x="${padL - 4}" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="8" fill="var(--ink-soft)">${v}</text>
+      <line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + plotW}" y2="${y.toFixed(1)}" stroke="var(--powder-line)" stroke-width="1" ${v === maxVal || v === minVal ? "" : `stroke-dasharray="2,2"`} />
+    `;
+  }).join("");
+
+  const lastValue = values[values.length - 1];
+
+  return `
+    <div class="card" style="padding:10px;">
+      <div class="row-between" style="margin-bottom:4px;">
+        <span style="font-size:11px; font-weight:600;">${escapeHtml(label)}</span>
+        <span style="font-size:13px; font-weight:700; color:${color};">${lastValue.toFixed(1)}</span>
+      </div>
+      <svg viewBox="0 0 ${width} ${height}" style="width:100%; height:auto; display:block; overflow:visible;">
+        ${axisTicksSvg}
+        <polyline points="${coords}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" />
+        ${dots}
+        ${valueLabels}
+      </svg>
+      <div class="row-between muted" style="font-size:10px; margin-top:2px;">
+        <span>${escapeHtml(formatDate(points[0].date))}</span>
+        <span>${escapeHtml(formatDate(points[points.length - 1].date))}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderSupplierChart(supplierId, resolved) {
+  const container = $(`chart-${supplierId}`);
+  if (!container) return;
+
+  // Solo punteggi numerici (audit U8): un valore non numerico in un dato
+  // salvato non deve far saltare tutto il grafico del fornitore.
+  const numericOnly = (criteri) => Object.fromEntries(
+    Object.entries(criteri).filter(([, v]) => typeof v === "number" && Number.isFinite(v))
+  );
+  const points = resolved
+    .filter(r => r.payload && r.payload.criteri && typeof r.payload.criteri === "object" && r.payload.data
+      && !Number.isNaN(new Date(r.payload.data + "T00:00:00").getTime()))
+    .map(r => ({ date: r.payload.data, criteri: numericOnly(r.payload.criteri) }))
+    .filter(p => Object.keys(p.criteri).length > 0)
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  if (points.length < 2) {
+    container.innerHTML = ""; // meno di due punti: nessuna linea disegnabile
+    return;
+  }
+
+  const criteriaNames = [...new Set(points.flatMap(p => Object.keys(p.criteri)))];
+
+  // Un mini-grafico per criterio, due per riga.
+  const criterionCharts = criteriaNames.map((name, i) => {
+    const color = CHART_COLORS[i % CHART_COLORS.length];
+    const criterionPoints = points
+      .map(p => (name in p.criteri) ? { date: p.date, value: p.criteri[name] } : null)
+      .filter(Boolean);
+    return renderMiniChart(name, criterionPoints, color, state.schemaMinValue, state.schemaMaxValue);
+  }).join("");
+
+  // Media di ciascuna valutazione, indipendente dalle altre — non
+  // cumulativa: ogni punto riflette solo quel periodo, cosi' un periodo
+  // andato male si vede subito com'e', invece di essere smussato dalla
+  // media con tutto lo storico precedente.
+  const periodAverages = points.map(p => {
+    const vals = Object.values(p.criteri);
+    return { date: p.date, value: vals.reduce((sum, v) => sum + v, 0) / vals.length };
+  });
+
+  container.innerHTML = `
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
+      ${criterionCharts}
+    </div>
+    <div style="margin-top:10px;">
+      ${renderMiniChart(t("periodAverageLabel"), periodAverages, "#164A80", state.schemaMinValue, state.schemaMaxValue, true)}
+    </div>
+  `;
+}
+
+async function renderEvaluationsForSupplier(supplierId) {
+  const reg = await registryEvents(state.tokenId);
+  const events = reg.evaluationsOf(supplierId);
+  const container = $(`evaluations-${supplierId}`);
+  if (!container) return;
+
+  if (events.length === 0) {
+    container.innerHTML = `<div class="muted">${t("noEvaluationsYet")}</div>`;
+    return;
+  }
+
+  container.innerHTML = `<div class="muted">${t("loadingEllipsis")}</div>`;
+
+  // Risolvo tutto PRIMA di disegnare la lista, cosi' posso ordinarla per
+  // data DI RIFERIMENTO (quella scelta da chi ha scritto la valutazione)
+  // invece che per ordine di scrittura sulla blockchain — importante per
+  // chi importa uno storico: altrimenti una valutazione vecchia importata
+  // oggi finirebbe in cima solo perche' e' stata registrata per ultima.
+  const resolved = await Promise.all(events.map(async (ev) => {
+    const { evaluationId, isPublic, contentHash, supersedes, uri } = ev.args;
+    let payload = null;
+    let plaintext = null; // testo esatto della valutazione privata: la sua impronta e' quella on-chain
+    const locked = !isPublic && !state.cryptoKey;
+
+    if (!locked) {
+      try {
+        const bytes = await fetchFromIPFS(uri, isPublic ? contentHash : undefined);
+        if (isPublic) {
+          payload = JSON.parse(new TextDecoder().decode(bytes));
+        } else {
+          plaintext = new TextDecoder().decode(await decryptBytes(bytes, state.cryptoKey));
+          payload = JSON.parse(plaintext);
+        }
+      } catch {
+        payload = null;
+      }
+    }
+    const disclosures = reg.disclosuresOf(supplierId, evaluationId);
+
+    let blockTimestampMs = null;
+    try {
+      blockTimestampMs = await getBlockTimestampMs(ev.blockHash);
+    } catch { /* resta null, va bene */ }
+
+    // Chiave di ordinamento: la data di riferimento se la conosciamo (in
+    // chiaro o decifrata), altrimenti il timestamp del blocco come ripiego
+    // migliore disponibile (es. valutazione ancora bloccata, dato mancante).
+    const sortTimeMs = payload?.data
+      ? new Date(payload.data + "T00:00:00").getTime()
+      : (blockTimestampMs ?? 0);
+
+    return { evaluationId, isPublic, contentHash, supersedes, uri, payload, plaintext, disclosures, locked, blockTimestampMs, sortTimeMs };
+  }));
+
+  resolved.sort((a, b) => b.sortTimeMs - a.sortTimeMs); // piu' recenti (per data di riferimento) prima
+
+  // Correzioni tracciate (audit U12): una valutazione che ne "sostituisce"
+  // un'altra la rende non piu' valida. La sostituita resta nello storico
+  // (visibile, attenuata), ma non conta piu' in grafici e medie.
+  const supersededBy = new Map();
+  for (const r of resolved) {
+    if (r.supersedes > 0n) {
+      const prev = supersededBy.get(r.supersedes);
+      if (prev === undefined || r.evaluationId > prev) supersededBy.set(r.supersedes, r.evaluationId);
+    }
+  }
+  for (const r of resolved) r.supersededBy = supersededBy.get(r.evaluationId) ?? null;
+  renderSupplierChart(supplierId, resolved.filter(r => !r.supersededBy));
+
+  container.innerHTML = resolved.map(r => `
+    <div style="padding:8px 0; border-top:1px solid var(--powder-line);${r.supersededBy ? " opacity:0.55;" : ""}">
+      ${r.supersededBy ? `<div class="muted" style="font-size:12px; font-weight:600; margin-bottom:2px;">${t("supersededByLabel", { id: r.supersededBy })}</div>` : ""}
+      <div class="row-between">
+        <span class="muted" style="font-size:12px; font-weight:600;${r.supersededBy ? " text-decoration:line-through;" : ""}">${t("evaluationNumber", { id: r.evaluationId })}${r.supersedes > 0n ? t("correctsHash", { id: r.supersedes }) : ""}</span>
+        <span class="badge ${r.isPublic ? "badge-public" : "badge-private"}">${r.isPublic ? t("publicBadge") : t("privateBadge")}</span>
+      </div>
+      <div class="muted" style="font-size:12px; margin-top:2px;">
+        ${r.blockTimestampMs ? t("registeredOn", { date: new Date(r.blockTimestampMs).toLocaleDateString(t("dateLocale"), { year: "numeric", month: "long", day: "numeric" }) }) : ""}
+      </div>
+      <div id="eval-detail-${supplierId}-${r.evaluationId}" style="margin-top:6px;"></div>
+    </div>
+  `).join("");
+
+  for (const r of resolved) {
+    renderEvaluationDetail(supplierId, r);
+  }
+}
+
+// Disegna il dettaglio gia' risolto (o il pulsante "Sblocca" se ancora
+// cifrata e senza chiave) — non rifa' MAI fetch/decifratura: quella e'
+// gia' avvenuta in renderEvaluationsForSupplier, prima di poter ordinare.
+function renderEvaluationDetail(supplierId, r) {
+  const el = $(`eval-detail-${supplierId}-${r.evaluationId}`);
+  if (!el) return;
+
+  if (r.locked && !state.isOwner) {
+    // Visitatore (audit U15): di norma non conosce il codice, quindi il
+    // messaggio principale e' "contenuto riservato". Ma la chiave dipende
+    // dal codice e dal registro, NON da chi e' collegato: un collaboratore
+    // con un altro Universal Profile che conosce il codice puo' leggere i
+    // dati privati — per lui resta un pulsante secondario.
+    el.innerHTML = `<span class="muted" style="font-size:12px;">${t("privateContent")}</span>
+      <button class="btn btn-ghost" style="padding:2px 8px; font-size:11px; margin-left:6px;">${t("haveCodeBtn")}</button>`;
+    el.querySelector("button").addEventListener("click", () => {
+      openPinModal(() => renderEvaluationsForSupplier(supplierId));
+    });
+    return;
+  }
+
+  if (r.locked) {
+    el.innerHTML = `<button class="btn btn-ghost" style="padding:4px 10px; font-size:12px;">${t("unlockToSee")}</button>`;
+    el.querySelector("button").addEventListener("click", () => {
+      // riparte da capo: risolve di nuovo TUTTO e riordina, non solo questa
+      openPinModal(() => renderEvaluationsForSupplier(supplierId));
+    });
+    return;
+  }
+
+  if (!r.payload) {
+    el.innerHTML = `<span class="muted">${t("unreadableContent", { reason: r.isPublic ? t("publicDataReason") : t("wrongKeyReason") })}</span>`;
+    return;
+  }
+
+  const payload = r.payload;
+  const criteriHtml = Object.entries(payload.criteri || {})
+    .map(([k, v]) => `<div class="row-between" style="font-size:13px;"><span class="muted">${escapeHtml(k)}</span><strong>${escapeHtml(v)}</strong></div>`)
+    .join("");
+
+  el.innerHTML = `
+    ${payload.data ? `<div class="muted" style="font-size:12px;">${t("referredTo", { date: escapeHtml(formatDate(payload.data)) })}</div>` : ""}
+    ${criteriHtml}
+    ${payload.note ? `<div class="muted" style="margin-top:4px; font-size:13px;">${escapeHtml(payload.note)}</div>` : ""}
+    ${payload.document ? `<button class="btn btn-ghost" id="doc-btn-${supplierId}-${r.evaluationId}" style="margin-top:6px; padding:4px 10px; font-size:12px;">📎 ${escapeHtml(payload.document.name)}</button>` : ""}
+  `;
+
+  // "Correggi" (audit U12): solo il proprietario, solo sulle valutazioni
+  // ancora valide (niente rami paralleli di correzioni).
+  if (state.isOwner && !state.isRevoked && !r.supersededBy) {
+    const fix = document.createElement("button");
+    fix.className = "btn btn-ghost";
+    fix.style.cssText = "margin-top:6px; margin-left:6px; padding:4px 10px; font-size:12px;";
+    fix.textContent = t("correctBtn");
+    fix.addEventListener("click", () => openEvaluationModal(supplierId, r));
+    el.appendChild(fix);
+  }
+
+  // Condivisione riservata (audit U13, Gold): solo valutazioni private,
+  // leggibili e ancora valide, solo il proprietario.
+  if (state.isOwner && !state.isRevoked && state.canDisclose && !r.isPublic && r.plaintext && !r.supersededBy) {
+    const share = document.createElement("button");
+    share.className = "btn btn-ghost";
+    share.style.cssText = "margin-top:6px; margin-left:6px; padding:4px 10px; font-size:12px;";
+    share.textContent = t("discloseBtn");
+    share.addEventListener("click", () => openDisclosureModal(supplierId, r));
+    el.appendChild(share);
+  }
+  if (state.isOwner && r.disclosures && r.disclosures.length > 0) {
+    const info = document.createElement("div");
+    info.className = "muted";
+    info.style.cssText = "font-size:12px; margin-top:6px;";
+    info.innerHTML = `${t("disclosedTimes", { n: r.disclosures.length })}
+      <button class="btn btn-ghost" style="padding:2px 8px; font-size:11px; margin-left:6px;">${t("showDisclosureLinks")}</button>
+      <div class="disclosure-links" style="margin-top:4px;"></div>`;
+    info.querySelector("button").addEventListener("click", () => showDisclosureLinks(r, info.querySelector(".disclosure-links")));
+    el.appendChild(info);
+  }
+
+  if (payload.document) {
+    $(`doc-btn-${supplierId}-${r.evaluationId}`).addEventListener("click", async (e) => {
+      const btn = e.target;
+      const originalText = btn.textContent;
+      btn.textContent = t("downloading");
+      btn.disabled = true;
+      try {
+        const docBytes = await fetchFromIPFS(payload.document.uri, r.isPublic ? payload.document.hash : undefined);
+        const finalBytes = r.isPublic ? docBytes : await decryptBytes(docBytes, state.cryptoKey);
+        openAttachmentSafely(finalBytes, payload.document.name);
+      } catch (err) {
+        btn.textContent = t("openError");
+        return;
+      }
+      btn.textContent = originalText;
+      btn.disabled = false;
+    });
+  }
+}
+
+// =======================================================================
+// APERTURA SICURA DEGLI ALLEGATI — nome e tipo dell'allegato li scrive chi
+// ha caricato la valutazione, e un blob: URL creato qui appartiene allo
+// STESSO dominio del sito: un allegato HTML/SVG aperto cosi' eseguirebbe
+// codice come se fosse una pagina nostra (nel browser di un visitatore di
+// un registro pubblico). Quindi:
+// - il tipo si ricava dai BYTE del file, mai da quello dichiarato nel JSON
+// - si aprono in una nuova scheda solo PDF e immagini raster riconosciuti,
+//   in una scheda isolata (noopener) che non puo' toccare questa pagina
+// - tutto il resto (HTML, SVG, XML, Office, archivi, testo, sconosciuti)
+//   viene SCARICATO come application/octet-stream, mai interpretato
+// =======================================================================
+const INLINE_ATTACHMENT_TYPES = [
+  { type: "application/pdf", ext: "pdf", match: b => startsWithBytes(b, [0x25, 0x50, 0x44, 0x46, 0x2D]) }, // %PDF-
+  { type: "image/png", ext: "png", match: b => startsWithBytes(b, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) },
+  { type: "image/jpeg", ext: "jpg", match: b => startsWithBytes(b, [0xFF, 0xD8, 0xFF]) },
+  { type: "image/gif", ext: "gif", match: b => startsWithBytes(b, [0x47, 0x49, 0x46, 0x38]) }, // GIF8
+  { type: "image/webp", ext: "webp", match: b => startsWithBytes(b, [0x52, 0x49, 0x46, 0x46]) && startsWithBytes(b.subarray(8), [0x57, 0x45, 0x42, 0x50]) }, // RIFF....WEBP
+];
+
+function startsWithBytes(bytes, prefix) {
+  if (bytes.length < prefix.length) return false;
+  return prefix.every((v, i) => bytes[i] === v);
+}
+
+function safeAttachmentFileName(name, ext) {
+  let clean = String(name ?? "")
+    .replace(/[\u0000-\u001f\u007f<>:"/\\|?*]+/g, "_") // caratteri di controllo e riservati, percorsi
+    .replace(/^[.\s]+|[.\s]+$/g, "")                      // niente punti/spazi iniziali o finali
+    .slice(0, 120);
+  if (!clean) clean = "allegato";
+  if (ext && !clean.toLowerCase().endsWith("." + ext)) clean += "." + ext;
+  return clean;
+}
+
+function openAttachmentSafely(bytes, declaredName) {
+  const inline = INLINE_ATTACHMENT_TYPES.find(k => k.match(bytes));
+  if (inline) {
+    const url = URL.createObjectURL(new Blob([bytes], { type: inline.type }));
+    window.open(url, "_blank", "noopener");
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    return;
+  }
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = safeAttachmentFileName(declaredName);
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+// =======================================================================
+// MODALE PIN — deriva la chiave e la tiene SOLO in memoria di sessione.
+// Accetta un callback opzionale: se il modale e' stato aperto perche' una
+// certa azione (es. "aggiungi fornitore") richiedeva la chiave e non
+// c'era ancora, dopo aver inserito il codice quell'azione riparte da sola
+// invece di lasciare l'utente a doversene accorgere e ricliccare.
+// =======================================================================
+let pinModalCallback = null;
+
+async function openPinModal(onSuccess) {
+  pinModalCallback = onSuccess || null;
+
+  // Distingue "primo utilizzo" (nessun fornitore ancora, quindi nessun dato
+  // gia' cifrato con cui il nuovo codice debba coincidere) da "utilizzo
+  // successivo" (deve essere lo stesso codice di sempre, altrimenti la
+  // decifratura dei dati esistenti fallisce silenziosamente).
+  let isFirstTime = true;
+  try {
+    const count = await state.contractReadOnly.supplierCount(state.tokenId);
+    isFirstTime = count === 0n;
+  } catch { /* in dubbio, meglio mostrare comunque l'avviso piu' cauto */ }
+
+  $("pin-modal-title").textContent = isFirstTime ? t("createCodeTitle") : t("enterCodeTitle");
+  $("pin-modal-description").textContent = isFirstTime ? t("createCodeDesc") : t("enterCodeDesc");
+  $("pin-modal-warning").style.display = isFirstTime ? "block" : "none";
+  $("pin-confirm-row").style.display = isFirstTime ? "block" : "none";
+  $("pin-confirm").textContent = isFirstTime ? t("createCodeBtn") : t("unlockBtn");
+  $("pin-modal-status").textContent = "";
+  $("pin-input").value = "";
+  $("pin-confirm-input").value = "";
+  $("pin-modal").dataset.firstTime = isFirstTime ? "1" : "0";
+
+  $("pin-modal").classList.add("open");
+  $("pin-input").focus();
+}
+
+$("pin-cancel").addEventListener("click", () => {
+  pinModalCallback = null;
+  $("pin-modal").classList.remove("open");
+});
+
+$("pin-confirm").addEventListener("click", async () => {
+  const pin = $("pin-input").value;
+  const isFirstTime = $("pin-modal").dataset.firstTime === "1";
+
+  if (!pin) {
+    $("pin-modal-status").textContent = t("emptyCodeError");
+    return;
+  }
+  if (isFirstTime && pin !== $("pin-confirm-input").value) {
+    $("pin-modal-status").textContent = t("codesDontMatch");
+    return;
+  }
+
+  state.cryptoKey = await deriveKey(pin, state.tokenId, CONFIG.REGISTRY_CONTRACT);
+  $("pin-input").value = "";
+  $("pin-confirm-input").value = "";
+  $("pin-modal").classList.remove("open");
+
+  await renderSuppliers(); // ri-risolve i nomi privati ora decifrabili
+
+  const callback = pinModalCallback;
+  pinModalCallback = null;
+  if (callback) callback();
+});
+
+// =======================================================================
+// MODALE NUOVO FORNITORE — il codice segreto serve SOLO se scegli di
+// tenere il nome privato. Per un fornitore pubblico non serve affatto,
+// quindi il modale si apre sempre subito; il controllo scatta solo al
+// momento di inviare, e solo se hai scelto privato.
+// =======================================================================
+function openSupplierModal() {
+  $("supplier-modal").classList.add("open");
+}
+$("supplier-cancel").addEventListener("click", () => $("supplier-modal").classList.remove("open"));
+$("supplier-confirm").addEventListener("click", submitSupplier);
+
+async function submitSupplier() {
+  const name = $("supplier-name").value.trim();
+  const isPublic = $("supplier-public-toggle").checked;
+  if (!name) return;
+
+  if (!isPublic && !state.cryptoKey) {
+    // Serve il codice solo ora, perche' solo ora sappiamo che serve davvero.
+    // Il callback re-invoca questa stessa funzione con gli stessi dati gia'
+    // inseriti, cosi' l'utente non deve ricompilare nulla.
+    openPinModal(submitSupplier);
+    return;
+  }
+
+  const btn = $("supplier-confirm");
+  const status = $("supplier-status");
+  btn.disabled = true;
+  btn.textContent = t("pleaseWait");
+  status.textContent = t("encryptingUploading");
+  try {
+    let nameUri, nameHash;
+    if (isPublic) {
+      const plaintext = new TextEncoder().encode(JSON.stringify({ name }));
+      nameHash = ethers.keccak256(plaintext);
+      nameUri = await uploadToIPFS(plaintext);
+    } else {
+      const { bytes, contentHash } = await encryptJSON({ name }, state.cryptoKey);
+      nameHash = contentHash;
+      nameUri = await uploadToIPFS(bytes);
+    }
+
+    btn.textContent = t("confirmFromWallet");
+    status.textContent = t("openExtensionToSign");
+    const tx = await state.contract.addSupplier(state.tokenId, nameHash, nameUri, isPublic);
+    btn.textContent = t("txInProgress");
+    status.textContent = t("txPendingConfirmation");
+    const receipt = await tx.wait();
+    invalidateEvents(registryEventsKey(state.tokenId), receipt?.blockNumber); // il nuovo fornitore deve comparire subito
+
+    $("supplier-modal").classList.remove("open");
+    $("supplier-name").value = "";
+    await renderDashboard();
+  } catch (e) {
+    status.textContent = explainRevert(e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = t("createSupplierBtn");
+  }
+}
+
+// =======================================================================
+// MODALE NUOVA VALUTAZIONE
+// =======================================================================
+let currentSupplierId = null;
+let currentParamNames = []; // nomi dei criteri presi dallo schema (audit U4), non dal testo dell'etichetta
+let currentSupplierName = "";
+
+// Valori dell'ULTIMA valutazione (per data di riferimento), per mostrarli
+// accanto al campo mentre si compila quella nuova — aiuta a farsi un'idea
+// di dove ci si trova rispetto a prima. Solo valutazioni leggibili (in
+// chiaro o gia' decifrate) possono contribuire; se l'ultima e' ancora
+// bloccata, semplicemente non si mostra nulla (nessun errore).
+async function fetchLatestCriteriaValues(supplierId) {
+  const events = (await registryEvents(state.tokenId)).evaluationsOf(supplierId);
+  const superseded = new Set(events.map(ev => ev.args.supersedes).filter(id => id > 0n));
+  let best = null;
+  let bestTime = -Infinity;
+
+  for (const ev of events) {
+    if (superseded.has(ev.args.evaluationId)) continue; // sostituita da una correzione (audit U12)
+    const { isPublic, uri, contentHash } = ev.args;
+    if (!isPublic && !state.cryptoKey) continue;
+    try {
+      const bytes = await fetchFromIPFS(uri, isPublic ? contentHash : undefined);
+      const payload = isPublic ? JSON.parse(new TextDecoder().decode(bytes)) : await decryptJSON(bytes, state.cryptoKey);
+      if (!payload.criteri) continue;
+      const time = payload.data ? new Date(payload.data + "T00:00:00").getTime() : 0;
+      if (time > bestTime) { bestTime = time; best = payload.criteri; }
+    } catch { /* valutazione illeggibile, saltala */ }
+  }
+  return best;
+}
+
+// =======================================================================
+// CONDIVISIONE RISERVATA (audit U13, Gold) — una singola valutazione
+// privata resa leggibile a chi riceve un link, senza dare il codice del
+// registro e senza renderla pubblica.
+// - Chiave AES-256 usa-e-getta generata qui; il link la porta DOPO il "#",
+//   parte dell'URL che il browser non invia mai a nessun server.
+// - Contenuto condiviso: il TESTO ESATTO della valutazione (e, se scelto,
+//   del nome del fornitore) cosi' come e' stato registrato: chi riceve puo'
+//   verificare che la sua impronta coincida con quella on-chain, cioe' che
+//   non e' stato modificato dopo. L'allegato, se incluso, viene ricifrato
+//   con la stessa chiave usa-e-getta (verificabile con l'impronta presente
+//   nel testo della valutazione).
+// - On-chain (discloseEvaluation): riferimento al file e impronta del
+//   contenuto condiviso — mai la chiave.
+// - Il file contiene anche la chiave usa-e-getta cifrata con la chiave del
+//   registro: il proprietario, sbloccato, puo' sempre ritrovare i link.
+// - Non revocabile: chi ha il link lo ha per sempre.
+// =======================================================================
+// Campi con un link da copiare: un clic seleziona tutto. Gestore unico
+// invece di onclick="..." nell'HTML, che la Content-Security-Policy
+// (audit S6) non permette.
+document.addEventListener("click", (e) => {
+  if (e.target instanceof HTMLInputElement && e.target.classList.contains("select-on-click")) e.target.select();
+});
+
+const bytesToB64 = (bytes) => btoa(String.fromCharCode(...bytes));
+const b64ToBytes = (text) => Uint8Array.from(atob(text), c => c.charCodeAt(0));
+const bytesToB64Url = (bytes) => bytesToB64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+function disclosureLink(supplierId, evaluationId, disclosureId, rawKey) {
+  const base = new URL("condivisione.html", window.location.href);
+  base.search = new URLSearchParams({ r: state.tokenId, s: String(supplierId), e: String(evaluationId), d: String(disclosureId) }).toString();
+  return `${base.toString()}#k=${bytesToB64Url(rawKey)}`;
+}
+
+let currentDisclosure = null;
+
+function openDisclosureModal(supplierId, r) {
+  currentDisclosure = { supplierId, r };
+  $("disclosure-title").textContent = t("discloseTitle", { id: r.evaluationId });
+  $("disclosure-desc").textContent = t("discloseDesc");
+  $("disclosure-include-name-label").textContent = t("discloseIncludeName");
+  $("disclosure-include-doc-label").textContent = t("discloseIncludeDoc");
+  $("disclosure-include-name").checked = true;
+  $("disclosure-include-doc").checked = true;
+  $("disclosure-include-doc-row").style.display = r.payload && r.payload.document ? "flex" : "none";
+  $("disclosure-warning").textContent = t("discloseWarning");
+  $("disclosure-result").style.display = "none";
+  $("disclosure-link-label").textContent = t("discloseLinkLabel");
+  $("disclosure-copy").textContent = t("copyLinkBtn");
+  $("disclosure-cancel").textContent = t("cancel");
+  $("disclosure-confirm").textContent = t("discloseConfirmBtn");
+  $("disclosure-confirm").style.display = "inline-block";
+  $("disclosure-confirm").disabled = false;
+  $("disclosure-status").textContent = "";
+  $("disclosure-modal").classList.add("open");
+}
+
+$("disclosure-cancel").addEventListener("click", () => $("disclosure-modal").classList.remove("open"));
+$("disclosure-copy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("disclosure-link").value); $("disclosure-status").textContent = t("linkCopiedShort"); }
+  catch { $("disclosure-link").select(); }
+});
+$("disclosure-confirm").addEventListener("click", async () => {
+  if (!currentDisclosure) return;
+  const { supplierId, r } = currentDisclosure;
+  const btn = $("disclosure-confirm");
+  const status = $("disclosure-status");
+  btn.disabled = true;
+  try {
+    const link = await createDisclosure(supplierId, r, {
+      includeName: $("disclosure-include-name").checked,
+      includeAttachment: $("disclosure-include-doc").checked,
+    }, status);
+    $("disclosure-link").value = link;
+    $("disclosure-result").style.display = "block";
+    btn.style.display = "none";
+    $("disclosure-cancel").textContent = t("closeBtn");
+    status.textContent = t("discloseDone");
+    renderEvaluationsForSupplier(supplierId);
+  } catch (e) {
+    status.textContent = explainRevert(e);
+    btn.disabled = false;
+  }
+});
+
+async function createDisclosure(supplierId, r, opts, status) {
+  status.textContent = t("encryptingUploading");
+  const reg = await registryEvents(state.tokenId);
+
+  let supplierName = null;
+  if (opts.includeName) {
+    const sup = reg.suppliers.find(ev => ev.args.supplierId === BigInt(supplierId));
+    if (sup) {
+      const bytes = await fetchFromIPFS(sup.args.nameUri, sup.args.isNamePublic ? sup.args.nameHash : undefined);
+      const plain = sup.args.isNamePublic ? bytes : await decryptBytes(bytes, state.cryptoKey);
+      supplierName = new TextDecoder().decode(plain);
+    }
+  }
+
+  const oneTimeKey = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+  const rawKey = new Uint8Array(await crypto.subtle.exportKey("raw", oneTimeKey));
+
+  let attachment = null;
+  if (opts.includeAttachment && r.payload && r.payload.document) {
+    const docBytes = await fetchFromIPFS(r.payload.document.uri);
+    const plainDoc = await decryptBytes(docBytes, state.cryptoKey);
+    const { bytes } = await encryptBytes(plainDoc, oneTimeKey);
+    attachment = { uri: await uploadToIPFS(bytes), name: r.payload.document.name, type: r.payload.document.type || "" };
+  }
+
+  const payloadBytes = new TextEncoder().encode(JSON.stringify({
+    v: 1,
+    chainId: CONFIG.CHAIN_ID,
+    contract: CONFIG.REGISTRY_CONTRACT,
+    tokenId: state.tokenId,
+    supplierId: String(supplierId),
+    evaluationId: String(r.evaluationId),
+    registryLabel: state.registryLabel || "",
+    evaluation: r.plaintext,
+    supplierName,
+    attachment,
+    salt: ethers.hexlify(crypto.getRandomValues(new Uint8Array(32))),
+  }));
+  const disclosureHash = ethers.keccak256(payloadBytes);
+  const { bytes: data } = await encryptBytes(payloadBytes, oneTimeKey);
+  const { bytes: ownerCopy } = await encryptBytes(rawKey, state.cryptoKey);
+  const blob = new TextEncoder().encode(JSON.stringify({ v: 1, owner: bytesToB64(ownerCopy), data: bytesToB64(data) }));
+  const uri = await uploadToIPFS(blob);
+
+  status.textContent = t("openExtensionToSign");
+  const tx = await state.contract.discloseEvaluation(state.tokenId, supplierId, r.evaluationId, uri, disclosureHash);
+  status.textContent = t("txPendingConfirmation");
+  const receipt = await tx.wait();
+  invalidateEvents(registryEventsKey(state.tokenId), receipt?.blockNumber);
+  const disclosed = receipt.logs
+    .map(l => { try { return state.contract.interface.parseLog(l); } catch { return null; } })
+    .find(e => e && e.name === "EvaluationDisclosed");
+  return disclosureLink(supplierId, r.evaluationId, disclosed.args.disclosureId, rawKey);
+}
+
+// Link delle condivisioni gia' fatte: la chiave usa-e-getta e' nel file,
+// cifrata con la chiave del registro (solo il proprietario sbloccato la legge).
+async function showDisclosureLinks(r, box) {
+  box.textContent = t("loadingEllipsis");
+  const rows = [];
+  for (const ev of r.disclosures) {
+    const { supplierId, evaluationId, disclosureId, disclosureUri } = ev.args;
+    try {
+      const blob = JSON.parse(new TextDecoder().decode(await fetchFromIPFS(disclosureUri)));
+      const rawKey = await decryptBytes(b64ToBytes(blob.owner), state.cryptoKey);
+      const link = disclosureLink(supplierId, evaluationId, disclosureId, rawKey);
+      rows.push(`<div style="margin-top:4px;">${t("disclosureNumber", { id: disclosureId })}
+        <input type="text" readonly class="select-on-click" value="${escapeHtml(link)}" style="font-size:11px; margin-top:2px;" /></div>`);
+    } catch {
+      rows.push(`<div style="margin-top:4px;">${t("disclosureNumber", { id: disclosureId })}: ${t("disclosureLinkUnavailable")}</div>`);
+    }
+  }
+  box.innerHTML = rows.join("");
+}
+
+let currentCorrection = null; // valutazione che si sta correggendo (audit U12), null = nuova
+
+async function openEvaluationModal(supplierId, correctionOf = null) {
+  if (!state.isOwner) return; // difensivo (audit U18): solo il proprietario puo' scrivere
+  // Difensivo: il contratto NON impedisce addEvaluation a tier zero, quindi
+  // il blocco e' solo qui. Ricontrolliamo di persona (non ci fidiamo solo
+  // del bottone nascosto in renderSuppliers, che potrebbe essere rimasto
+  // in pagina da prima che la membership venisse revocata).
+  const limits = await state.contractReadOnly.getEffectiveLimits(state.registryOwner);
+  const stillRevoked = limits[0] === 0n && limits[1] === 0n && !limits[2] && limits[3] === 0n && !limits[4];
+  if (stillRevoked) {
+    state.isRevoked = true;
+    alert(t("addEvaluationLocked"));
+    return;
+  }
+
+  currentSupplierId = supplierId;
+
+  // Riuso il nome gia' risolto e mostrato nella card del fornitore — non
+  // serve rifare fetch/decifratura, e' gia' in pagina (fallback "Fornitore
+  // #N" se privato e non ancora sbloccato, o "…caricamento…" se in corso).
+  const supplierNameEl = $(`supplier-name-${supplierId}`);
+  currentSupplierName = supplierNameEl ? supplierNameEl.textContent.trim() : t("supplierFallbackName", { id: supplierId });
+  $("evaluation-supplier-name").textContent = currentSupplierName;
+
+  const versionsCount = await state.contractReadOnly.schemaVersionsCount(state.tokenId);
+  const latestVersion = versionsCount - 1n;
+  const [paramNames, minValue, maxValue] = await state.contractReadOnly.getSchema(state.tokenId, latestVersion);
+  const previousValues = await fetchLatestCriteriaValues(supplierId);
+
+  $("evaluation-criteria-fields").innerHTML = paramNames.map((p, i) => `
+    <label for="crit-${i}">${escapeHtml(p)} (${minValue}–${maxValue})${
+      previousValues && p in previousValues
+        ? ` <span class="muted" style="font-weight:400;">${t("previousValueLabel", { value: escapeHtml(previousValues[p]) })}</span>`
+        : ""
+    }</label>
+    <input type="number" id="crit-${i}" min="${minValue}" max="${maxValue}" value="${minValue}" />
+  `).join("");
+
+  currentParamNames = [...paramNames];
+  $("evaluation-modal").dataset.schemaVersion = latestVersion.toString();
+  $("evaluation-modal").dataset.paramCount = paramNames.length.toString();
+  // Default a oggi, ma modificabile — serve proprio per poter registrare
+  // valutazioni passate (es. importare uno storico), non solo quelle fatte
+  // nel momento in cui si preme il pulsante.
+  // Data LOCALE (audit U6): toISOString() e' in UTC e tra mezzanotte e le
+  // 2 italiane proponeva il giorno precedente.
+  const today = new Date();
+  $("evaluation-date").value = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")].join("-");
+  // Modale sempre pulito (audit U5): nota, pubblico/privato e allegato
+  // non devono passare da un fornitore all'altro.
+  $("evaluation-document").value = "";
+  $("evaluation-note").value = "";
+  $("evaluation-public-toggle").checked = false;
+  $("evaluation-public-warning").style.display = "none";
+  $("evaluation-status").textContent = "";
+  pendingEvaluationPayload = null;
+
+  // Correzione: modale precompilato con i valori della valutazione originale.
+  currentCorrection = correctionOf && correctionOf.payload ? {
+    id: correctionOf.evaluationId,
+    isPublic: correctionOf.isPublic,
+    document: correctionOf.payload.document || null,
+  } : null;
+  $("evaluation-modal-title").textContent = currentCorrection
+    ? t("correctionTitle", { id: currentCorrection.id })
+    : t("newEvaluationTitle");
+  $("evaluation-correction-info").style.display = currentCorrection ? "block" : "none";
+  $("evaluation-correction-info").textContent = currentCorrection ? t("correctionInfo", { id: currentCorrection.id }) : "";
+  $("evaluation-correction-public-warning").style.display = "none";
+  if (currentCorrection) {
+    const original = correctionOf.payload;
+    currentParamNames.forEach((name, i) => {
+      const v = original.criteri ? original.criteri[name] : undefined;
+      if (typeof v === "number" && Number.isFinite(v)) $(`crit-${i}`).value = String(v);
+    });
+    if (typeof original.note === "string") $("evaluation-note").value = original.note;
+    if (typeof original.data === "string" && /^\d{4}-\d{2}-\d{2}$/.test(original.data)) $("evaluation-date").value = original.data;
+    $("evaluation-public-toggle").checked = currentCorrection.isPublic;
+    updateVisibilityWarnings();
+  }
+
+  // Allegato documentale: solo Gold. Riuso canDiscloseSelectively come
+  // segnale "sei Gold" invece di introdurre un terzo concetto — e' lo
+  // stesso flag gia' usato per la disclosure selettiva.
+  const [, , canDiscloseSelectively] = await state.contractReadOnly.getEffectiveLimits(state.registryOwner);
+  $("evaluation-document-row").style.display = canDiscloseSelectively ? "block" : "none";
+  $("evaluation-document-locked").style.display = canDiscloseSelectively ? "none" : "block";
+
+  backToEvaluationEdit();
+  $("evaluation-modal").classList.add("open");
+}
+$("evaluation-cancel").addEventListener("click", () => {
+  $("evaluation-modal").classList.remove("open");
+  backToEvaluationEdit();
+});
+function updateVisibilityWarnings() {
+  const isPublic = $("evaluation-public-toggle").checked;
+  $("evaluation-public-warning").style.display = isPublic ? "block" : "none";
+  // Correzione privata di un originale pubblico: l'originale NON sparisce
+  const warn = currentCorrection && currentCorrection.isPublic && !isPublic;
+  $("evaluation-correction-public-warning").style.display = warn ? "block" : "none";
+  $("evaluation-correction-public-warning").textContent = warn ? t("correctionPublicWarning", { id: currentCorrection.id }) : "";
+}
+$("evaluation-public-toggle").addEventListener("change", updateVisibilityWarnings);
+$("evaluation-review-btn").addEventListener("click", showEvaluationReview);
+$("evaluation-back-to-edit").addEventListener("click", backToEvaluationEdit);
+$("evaluation-confirm").addEventListener("click", confirmEvaluation);
+
+let pendingEvaluationPayload = null;
+
+function showEvaluationReview() {
+  const modal = $("evaluation-modal");
+  const paramCount = Number(modal.dataset.paramCount);
+  const isPublic = $("evaluation-public-toggle").checked;
+  const note = $("evaluation-note").value;
+  const evaluationDate = $("evaluation-date").value;
+
+  if (!isPublic && !state.cryptoKey) {
+    openPinModal(showEvaluationReview);
+    return;
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(evaluationDate)) {
+    $("evaluation-status").textContent = t("dateRequired");
+    return;
+  }
+
+  const criteri = {};
+  for (let i = 0; i < paramCount; i++) {
+    const input = $(`crit-${i}`);
+    const label = currentParamNames[i];
+    const raw = input.value.trim();
+    const value = raw === "" ? NaN : Number(raw); // campo vuoto = errore, non 0 (audit U7)
+    const min = Number(input.min);
+    const max = Number(input.max);
+
+    // Il contratto non puo' MAI verificare questo range da solo — per le
+    // valutazioni private e' impossibile per costruzione (vede solo un
+    // hash), e anche per quelle pubbliche non ha modo di rileggere il
+    // JSON dopo l'upload. Questo controllo esiste solo qui, lato UI.
+    if (Number.isNaN(value) || value < min || value > max) {
+      $("evaluation-status").textContent = t("rangeError", {
+        label, min, max, value: input.value || t("emptyValue")
+      });
+      return;
+    }
+    criteri[label] = value;
+  }
+
+  pendingEvaluationPayload = { criteri, note, data: evaluationDate };
+
+  const fileInput = $("evaluation-document");
+  const hasDocument = fileInput.files && fileInput.files[0];
+  // Allegato della valutazione originale: riusato se la scelta pubblico/
+  // privato non cambia e non ne e' stato caricato uno nuovo; altrimenti non
+  // riportabile (un file cifrato non e' leggibile in una valutazione
+  // pubblica, e viceversa).
+  const reusedDocument = currentCorrection && !hasDocument && currentCorrection.document && currentCorrection.isPublic === isPublic
+    ? currentCorrection.document : null;
+  const droppedDocument = currentCorrection && !hasDocument && currentCorrection.document && !reusedDocument
+    ? currentCorrection.document : null;
+  if (reusedDocument) pendingEvaluationPayload.document = reusedDocument;
+  const criteriRows = Object.entries(criteri).map(([k, v]) =>
+    `<div class="row-between" style="font-size:14px; padding:4px 0;"><span class="muted">${escapeHtml(k)}</span><strong>${v}</strong></div>`
+  ).join("");
+
+  $("evaluation-review-summary").innerHTML = `
+    <div class="card">
+      <div style="font-weight:700; margin-bottom:8px;">${escapeHtml(currentSupplierName)}</div>
+      ${criteriRows}
+      <div class="divider"></div>
+      <div class="muted" style="font-size:13px;">${t("referredTo", { date: escapeHtml(formatDate(evaluationDate)) })}</div>
+      ${note ? `<div style="margin-top:6px; font-size:13px;">${escapeHtml(note)}</div>` : ""}
+      ${hasDocument ? `<div class="muted" style="margin-top:6px; font-size:13px;">📎 ${escapeHtml(fileInput.files[0].name)}</div>` : ""}
+      ${reusedDocument ? `<div class="muted" style="margin-top:6px; font-size:13px;">📎 ${escapeHtml(reusedDocument.name)} · ${t("attachmentReused")}</div>` : ""}
+      ${currentCorrection ? `<div class="muted" style="margin-top:6px; font-size:13px; font-weight:600;">${t("correctionSummary", { id: currentCorrection.id })}</div>` : ""}
+      <div style="margin-top:10px;">
+        <span class="badge ${isPublic ? "badge-public" : "badge-private"}">${isPublic ? t("publicBadge") : t("privateBadge")}</span>
+      </div>
+    </div>
+    ${isPublic ? `<div class="warning-box">${t("makePublicWarning")}</div>` : ""}
+    ${droppedDocument ? `<div class="warning-box">${t("attachmentNotCarried", { name: escapeHtml(droppedDocument.name) })}</div>` : ""}
+    ${currentCorrection && currentCorrection.isPublic && !isPublic ? `<div class="warning-box">${t("correctionPublicWarning", { id: currentCorrection.id })}</div>` : ""}
+  `;
+
+  $("evaluation-status").textContent = "";
+  $("evaluation-edit-view").style.display = "none";
+  $("evaluation-review-view").style.display = "block";
+}
+
+function backToEvaluationEdit() {
+  $("evaluation-edit-view").style.display = "block";
+  $("evaluation-review-view").style.display = "none";
+  $("evaluation-status").textContent = "";
+}
+
+async function confirmEvaluation() {
+  const modal = $("evaluation-modal");
+  const schemaVersion = BigInt(modal.dataset.schemaVersion);
+  const isPublic = $("evaluation-public-toggle").checked;
+  const payload = pendingEvaluationPayload;
+  if (!payload) return; // difensivo: non dovrebbe poter succedere dalla UI
+
+  const btn = $("evaluation-confirm");
+  const status = $("evaluation-status");
+  btn.disabled = true;
+  btn.textContent = t("pleaseWait");
+  status.textContent = t("encryptingUploading");
+  try {
+    // Documento allegato (Gold): stessa scelta pubblico/privato della
+    // valutazione, stesso meccanismo di cifratura, solo su byte grezzi
+    // invece che su JSON.
+    const fileInput = $("evaluation-document");
+    if (fileInput.files && fileInput.files[0]) {
+      const file = fileInput.files[0];
+      const fileBytes = new Uint8Array(await file.arrayBuffer());
+      let docUri, docHash;
+      if (isPublic) {
+        docHash = ethers.keccak256(fileBytes);
+        docUri = await uploadToIPFS(fileBytes);
+      } else {
+        const { bytes, contentHash } = await encryptBytes(fileBytes, state.cryptoKey);
+        docHash = contentHash;
+        docUri = await uploadToIPFS(bytes);
+      }
+      payload.document = { uri: docUri, hash: docHash, name: file.name, type: file.type, size: file.size };
+    }
+    let uri, contentHash;
+    if (isPublic) {
+      const plaintext = new TextEncoder().encode(JSON.stringify(payload));
+      contentHash = ethers.keccak256(plaintext);
+      uri = await uploadToIPFS(plaintext);
+    } else {
+      const { bytes, contentHash: h } = await encryptJSON(payload, state.cryptoKey);
+      contentHash = h;
+      uri = await uploadToIPFS(bytes);
+    }
+
+    status.textContent = t("confirmFromWallet");
+    btn.textContent = t("confirmFromWallet");
+    const tx = await state.contract.addEvaluation(
+      state.tokenId, currentSupplierId, schemaVersion, contentHash, uri, isPublic,
+      currentCorrection ? BigInt(currentCorrection.id) : 0n // correzione tracciata (audit U12)
+    );
+    btn.textContent = t("txInProgress");
+    status.textContent = t("txPendingConfirmation");
+    const receipt = await tx.wait();
+    invalidateEvents(registryEventsKey(state.tokenId), receipt?.blockNumber); // la nuova valutazione deve comparire subito
+
+    modal.classList.remove("open");
+    $("evaluation-note").value = "";
+    $("evaluation-public-toggle").checked = false;
+    $("evaluation-public-warning").style.display = "none";
+    $("evaluation-document").value = "";
+    pendingEvaluationPayload = null;
+    currentCorrection = null;
+    backToEvaluationEdit();
+    await renderEvaluationsForSupplier(currentSupplierId);
+  } catch (e) {
+    status.textContent = explainRevert(e);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = t("confirmAndSaveBtn");
+  }
+}
+
+// =======================================================================
+// UTILITY
+// =======================================================================
+function setStatus(msg, isError = false) {
+  const el = $("status-line");
+  if (!el) return;
+  el.textContent = msg;
+  el.className = isError ? "error" : "ok";
+}
+
+// "Condividi link" (audit U14): link diretto al registro, apribile da
+// chiunque anche senza estensione. Mostra solo i contenuti pubblici.
+async function shareRegistryLink(tokenId) {
+  const url = `${window.location.origin}${window.location.pathname}?tokenId=${tokenId}`;
+  const status = $("share-link-status");
+  try {
+    await navigator.clipboard.writeText(url);
+    status.textContent = t("linkCopied");
+  } catch {
+    // appunti non disponibili (permessi/browser): mostro il link da copiare a mano
+    status.innerHTML = `${t("copyThisLink")}<br/><input type="text" readonly class="select-on-click" value="${escapeHtml(url)}" style="margin-top:4px; font-size:11px;" />`;
+  }
+}
+
+function renderError(msg) {
+  $("app-root").innerHTML = `<div class="empty-state">${msg}</div>`;
+}
+
+// Audit U2: all'apertura la pagina non restava piu' ferma su "Connessione
+// in corso…" in attesa di un clic. Se l'utente ha gia' autorizzato il sito
+// nell'estensione (eth_accounts non vuoto, richiesta silenziosa) si entra
+// direttamente; altrimenti una schermata di benvenuto con il pulsante.
+async function startup() {
+  if (!window.lukso) {
+    // l'estensione a volte inietta window.lukso un istante dopo il caricamento
+    await new Promise(resolve => setTimeout(resolve, 400));
+  }
+  const linkedRegistry = registryLinkFromUrl();
+  if (!window.lukso) {
+    if (linkedRegistry) await openReadOnly(linkedRegistry);
+    else renderWelcome(t("noExtension"), false);
+    return;
+  }
+  let accounts = [];
+  try {
+    accounts = await Promise.race([
+      window.lukso.request({ method: "eth_accounts" }),
+      new Promise(resolve => setTimeout(() => resolve([]), 3000)),
+    ]);
+  } catch { /* nessuna autorizzazione: schermata di benvenuto */ }
+  if (Array.isArray(accounts) && accounts.length > 0) {
+    await connect();
+  } else if (linkedRegistry) {
+    await openReadOnly(linkedRegistry);
+  } else {
+    renderWelcome(t("welcomeDesc"), true);
+  }
+}
+
+function renderWelcome(message, showSignIn) {
+  $("app-root").innerHTML = `
+    <div class="empty-state">
+      <h3>${t("welcomeTitle")}</h3>
+      <p class="muted">${message}</p>
+      ${showSignIn ? `<button class="btn" id="welcome-connect" style="margin-top:8px;">${t("connectButton")}</button>` : ""}
+      <p class="muted" style="margin-top:16px;"><a href="how-it-works.html">${t("howItWorksLabel")}</a></p>
+    </div>`;
+  if (showSignIn) $("welcome-connect").addEventListener("click", () => connect());
+}
+
+function renderWrongNetwork(chainId) {
+  $("btn-connect").disabled = false;
+  $("app-root").innerHTML = `
+    <div class="empty-state">
+      <h3>${t("wrongNetworkTitle")}</h3>
+      <p class="muted">${t("wrongNetworkDesc", { chainId: escapeHtml(String(chainId)) })}</p>
+      <button class="btn" id="btn-switch-network" style="margin-top:8px;">${t("switchNetworkBtn")}</button>
+      <div id="switch-network-status" class="muted" style="margin-top:8px;"></div>
+    </div>`;
+  $("btn-switch-network").addEventListener("click", async () => {
+    try {
+      await window.lukso.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x" + CONFIG.CHAIN_ID.toString(16) }] });
+      // se l'estensione cambia rete, l'evento chainChanged ricarica la pagina
+    } catch {
+      $("switch-network-status").textContent = t("switchNetworkFailed");
+    }
+  });
+}
+
+// Audit U10: qualunque errore durante accesso o caricamento mostra un
+// messaggio comprensibile e un pulsante "Riprova", invece di lasciare la
+// pagina ferma senza spiegazioni.
+function renderConnectError(e) {
+  console.error(e);
+  const rejected = e?.code === 4001 || e?.code === "ACTION_REJECTED" || e?.error?.code === 4001 || e?.info?.error?.code === 4001;
+  $("btn-connect").disabled = false;
+  $("app-root").innerHTML = `
+    <div class="empty-state">
+      <h3>${rejected ? t("connectRejectedTitle") : t("loadFailedTitle")}</h3>
+      <p class="muted">${rejected ? t("connectRejectedDesc") : t("loadFailedDesc")}</p>
+      <button class="btn" id="btn-retry" style="margin-top:8px;">${t("retryBtn")}</button>
+    </div>`;
+  // Riprova = connessione ricreata da capo, tornando al registro aperto (se c'era)
+  $("btn-retry").addEventListener("click", () =>
+    state.readOnlyMode ? openReadOnly(state.tokenId || registryLinkFromUrl()) : connect(state.tokenId));
+}
+
+async function runSafely(fn) {
+  try {
+    await fn();
+  } catch (e) {
+    renderConnectError(e);
+  }
+}
+
+function explainRevert(e) {
+  // ethers v6 decodifica gli errori custom se l'ABI li contiene (li abbiamo inclusi)
+  const name = e?.revert?.name || e?.errorName;
+  const known = {
+    RegistryAlreadyMinted: t("errRegistryAlreadyMinted"),
+    NoRecognizedMembership: t("errNoRecognizedMembership"),
+    SupplierLimitReached: t("errSupplierLimitReached"),
+    ParamLimitReached: t("errParamLimitReached"),
+    NotRegistryOwner: t("errNotRegistryOwner"),
+    SelectiveDisclosureNotAllowed: t("errSelectiveDisclosureNotAllowed"),
+    ImageCustomizationNotAllowed: t("errImageCustomizationNotAllowed"),
+  };
+  if (name && known[name]) return known[name];
+  return t("errGeneric", { msg: e?.shortMessage || e?.message || t("errUnknown") });
+}
+
+// =======================================================================
+// AVVIO
+// =======================================================================
+applyStaticTranslations();
+$("btn-connect").addEventListener("click", () => connect());
+startup();
+$("btn-logout").addEventListener("click", () => {
+  // Nessuno stato locale da salvare — il modo piu' sicuro e pulito di
+  // azzerare tutto (chiave di cifratura in memoria, listener, sessione col
+  // backend) e' semplicemente ricaricare la pagina da zero.
+  window.location.reload();
+});
+
+// Torna su — utile soprattutto su mobile con pagine lunghe (molti
+// fornitori/valutazioni). Compare solo dopo un po' di scorrimento, non
+// sempre visibile (sarebbe inutile e ingombrante vicino alla cima).
+window.addEventListener("scroll", () => {
+  $("btn-back-to-top").style.display = window.scrollY > 400 ? "block" : "none";
+});
+$("btn-back-to-top").addEventListener("click", () => {
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});

@@ -159,12 +159,14 @@ supplier-trust-registry/
 │   ├── admin.html                pannello owner del contratto (piani, metadata, ripinnatura IPFS)
 │   ├── how-it-works.html         guida utente IT/EN
 │   ├── condivisione.html         pagina di chi riceve una condivisione riservata (senza account)
+│   ├── js/                       codice delle pagine (niente script inline: Content-Security-Policy)
 │   └── abi.subset.json           ABI estratta dalla compilazione
 ├── backend/
 │   ├── server.js                 rotte: proxy RPC, accesso, upload
 │   ├── auth.js                   accesso con firma del Universal Profile
 │   ├── ipfs.js                   upload verso il nodo IPFS
 │   └── .env.example              variabili d'ambiente (senza segreti)
+├── nginx/security-headers.conf   intestazioni di sicurezza (CSP) da includere in Nginx
 ├── scripts/                      deploy dei contratti (deploy-v3.js per la V3)
 ├── docs/
 │   ├── AUDIT.md                  dettaglio dell'audit
@@ -246,7 +248,7 @@ Legenda: ✅ corretto · ⏳ aperto · 📌 limite noto, solo documentato
 | | S4 Proxy RPC limitato ai contratti del progetto | ✅ |
 | | S5 Accesso non disturbabile da terzi | ✅ |
 | | S6 Librerie servite in locale con impronte | ✅ |
-| | S6 Content-Security-Policy | ⏳ |
+| | S6 Content-Security-Policy | ⏳ in osservazione |
 | | S7 Vincoli imposti solo dall'interfaccia (contratto V3) | 📌 |
 | Interfaccia | L1 Linguaggio comprensibile, senza gergo tecnico | ✅ |
 | | U1–U3, U10 Primo accesso, rete, messaggi d'errore | ✅ |
