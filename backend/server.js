@@ -76,8 +76,44 @@ try {
 // mantenere sincronizzata col contratto, un frammento minimo e stabile.
 const REGISTRY_LIMITS_ABI = [
   "function getEffectiveLimits(address account) view returns (uint256 maxSuppliers, uint256 maxParams, bool canDiscloseSelectively, uint256 maxRegistries, bool canCustomizeImage)",
+  "function registryCountOf(address account) view returns (uint256)",
+  "function owner() view returns (address)",
 ];
 const registryContract = new ethers.Contract(REGISTRY_CONTRACT_ADDRESS, REGISTRY_LIMITS_ABI, rpcProvider);
+
+// =======================================================================
+// CHI PUO' CARICARE (audit S2) — firmare con una UP qualsiasi non basta
+// piu': servono almeno un Registro mintato su questo contratto, oppure
+// essere l'owner del contratto (pannello admin: metadata di collezione).
+// Verificato on-chain, con una piccola cache per non interrogare la catena
+// ad ogni file. Il controllo non distingue interfaccia e script: conta
+// solo chi ha firmato la sessione.
+// =======================================================================
+const UPLOAD_PERMISSION_TTL_MS = 5 * 60 * 1000;
+const uploadPermissionCache = new Map(); // address -> { allowed, expiresAt }
+
+async function canUpload(address) {
+  const key = address.toLowerCase();
+  const cached = uploadPermissionCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.allowed;
+  const [registryCount, owner] = await Promise.all([
+    registryContract.registryCountOf(address),
+    registryContract.owner(),
+  ]);
+  const allowed = registryCount > 0n || owner.toLowerCase() === key;
+  uploadPermissionCache.set(key, { allowed, expiresAt: Date.now() + UPLOAD_PERMISSION_TTL_MS });
+  return allowed;
+}
+
+async function requireUploadPermission(req, res, next) {
+  try {
+    if (await canUpload(req.upAddress)) return next();
+    return res.status(403).json({ error: "registry_required" });
+  } catch (e) {
+    console.error("Verifica permesso di upload fallita:", e.message);
+    return res.status(502).json({ error: "permission_check_failed" });
+  }
+}
 
 const app = express();
 // Il backend gira sempre dietro Nginx (reverse proxy sulla stessa VPS).
@@ -124,7 +160,9 @@ const authLimiter = rateLimit({
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_UPLOAD_BYTES },
+  // +64 byte: un allegato privato di esattamente MAX_UPLOAD_BYTES, una volta
+  // cifrato (IV 12 byte + tag GCM 16 byte), non deve essere rifiutato.
+  limits: { fileSize: MAX_UPLOAD_BYTES + 64 },
 });
 
 // =======================================================================
@@ -154,6 +192,42 @@ const RPC_METHOD_ALLOWLIST = new Set([
   "net_version",
 ]);
 
+// Audit S4: oltre ai metodi, anche i CONTRATTI sono una lista chiusa —
+// eth_call e eth_getLogs solo verso il contratto del registro (piu'
+// eventuali indirizzi extra da .env, separati da virgola), e getLogs
+// sempre con indirizzo esplicito e intervallo di blocchi limitato. Senza,
+// il proxy era di fatto un RPC pubblico gratuito per qualunque contratto.
+const RPC_ALLOWED_ADDRESSES = new Set(
+  [REGISTRY_CONTRACT_ADDRESS, ...(process.env.RPC_EXTRA_ALLOWED_ADDRESSES || "").split(",")]
+    .map(a => a.trim().toLowerCase())
+    .filter(a => ethers.isAddress(a))
+);
+const RPC_MAX_LOG_RANGE = 10000; // il frontend legge a finestre da 9.000 blocchi
+
+function isAllowedAddress(a) {
+  return typeof a === "string" && RPC_ALLOWED_ADDRESSES.has(a.toLowerCase());
+}
+
+function rpcRequestRejection(method, params) {
+  if (method === "eth_call") {
+    const call = Array.isArray(params) ? params[0] : null;
+    if (!call || !isAllowedAddress(call.to)) return "Contract not allowed through this proxy";
+  }
+  if (method === "eth_getLogs") {
+    const filter = Array.isArray(params) ? params[0] : null;
+    if (!filter || typeof filter !== "object") return "Invalid filter";
+    const addresses = Array.isArray(filter.address) ? filter.address : [filter.address];
+    if (addresses.length === 0 || !addresses.every(isAllowedAddress)) return "Contract not allowed through this proxy";
+    if (filter.blockHash === undefined) {
+      const isHex = (v) => typeof v === "string" && /^0x[0-9a-f]+$/i.test(v);
+      if (!isHex(filter.fromBlock) || !isHex(filter.toBlock)) return "Explicit block range required";
+      const range = Number(BigInt(filter.toBlock) - BigInt(filter.fromBlock));
+      if (range < 0 || range > RPC_MAX_LOG_RANGE) return `Block range too large (max ${RPC_MAX_LOG_RANGE})`;
+    }
+  }
+  return null;
+}
+
 app.post("/api/rpc", rpcProxyLimiter, async (req, res) => {
   const body = req.body;
   if (!body || typeof body !== "object" || Array.isArray(body) || typeof body.method !== "string") {
@@ -161,6 +235,10 @@ app.post("/api/rpc", rpcProxyLimiter, async (req, res) => {
   }
   if (!RPC_METHOD_ALLOWLIST.has(body.method)) {
     return res.status(403).json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32601, message: "Method not allowed through this proxy" } });
+  }
+  const rejection = rpcRequestRejection(body.method, body.params);
+  if (rejection) {
+    return res.status(403).json({ jsonrpc: "2.0", id: body.id ?? null, error: { code: -32602, message: rejection } });
   }
   try {
     const upstream = await fetch(LUKSO_RPC_URL, {
@@ -184,20 +262,20 @@ app.post("/api/auth/challenge", authLimiter, (req, res) => {
   if (!address || !ethers.isAddress(address)) {
     return res.status(400).json({ error: "invalid_address" });
   }
-  const { message, nonce } = createChallenge(address, CHALLENGE_DOMAIN, lang);
-  res.json({ message, nonce });
+  const { message, nonce, challengeToken } = createChallenge(address, CHALLENGE_DOMAIN, lang, JWT_SECRET);
+  res.json({ message, nonce, challengeToken });
 });
 
 // =======================================================================
-// POST /api/auth/verify   { address, signature }
+// POST /api/auth/verify   { address, signature, message, challengeToken }
 // =======================================================================
 app.post("/api/auth/verify", authLimiter, async (req, res) => {
-  const { address, signature } = req.body || {};
+  const { address, signature, message, challengeToken } = req.body || {};
   if (!address || !ethers.isAddress(address) || !signature) {
     return res.status(400).json({ error: "missing_fields" });
   }
 
-  const result = await verifyChallenge({ address, signature, rpcProvider });
+  const result = await verifyChallenge({ address, signature, message, challengeToken, secret: JWT_SECRET, rpcProvider });
   if (!result.ok) {
     console.warn(
       `[auth/verify] rifiutato per ${address}: ${result.reason}` +
@@ -218,6 +296,7 @@ app.post(
   "/api/ipfs/upload",
   uploadLimiter,
   requireAuth(JWT_SECRET),
+  requireUploadPermission,
   upload.single("file"),
   async (req, res) => {
     if (!req.file) {

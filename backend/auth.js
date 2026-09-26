@@ -6,12 +6,15 @@
 // restare senza dipendenze extra.
 //
 // Perche' serve: senza questo, l'endpoint di upload sarebbe un relay
-// aperto — chiunque potrebbe caricare byte a piacere sul vostro account
-// Pinata, a vostre spese, senza nemmeno possedere un Registro.
+// aperto — chiunque potrebbe caricare e far pinnare byte a piacere sul
+// nodo IPFS proprio. Chi PUO' caricare (registro o owner del contratto)
+// lo decide poi server.js (audit S2); qui si prova solo CHI e'.
 //
 // Flusso:
-//   1. Il frontend chiede una "challenge" per il proprio indirizzo
-//   2. Firma il messaggio con la UP (via UP browser extension / up-provider)
+//   1. Il frontend chiede una "challenge" per il proprio indirizzo e riceve
+//      messaggio + challengeToken (vedi sotto, nessuno stato lato server)
+//   2. Firma il messaggio con la UP (via UP browser extension) e rimanda
+//      firma, messaggio e challengeToken
 //   3. Il backend verifica la firma direttamente on-chain via isValidSignature
 //      (ERC1271 / LSP6 — funziona sia con controller EOA singolo sia con
 //      Key Manager, la UP la valida secondo la propria logica di permessi)
@@ -20,19 +23,51 @@
 // =======================================================================
 
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 const { ethers } = require("ethers");
 
 const CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5 minuti
 const SESSION_TTL = "30m";
 
-// NOTA: store in memoria di processo. Va bene per una singola istanza PM2;
-// se in futuro si passa a PM2 cluster mode con piu' processi, questo store
-// va spostato su qualcosa di condiviso (es. Redis) perche' ogni processo
-// avrebbe la propria mappa isolata e le challenge non combacerebbero.
-const pendingChallenges = new Map(); // address (lowercase) -> { nonce, message, expiresAt }
+// -----------------------------------------------------------------------
+// Challenge SENZA stato per indirizzo (audit S5). Prima il server teneva
+// UNA challenge per indirizzo, sovrascritta da ogni nuova richiesta:
+// chiunque poteva chiedere di continuo una challenge per l'indirizzo di un
+// altro e far fallire il suo accesso, e le challenge mai usate restavano in
+// memoria per sempre.
+//
+// Ora il server non si segna nulla alla creazione: consegna al client, insieme
+// al messaggio, un "biglietto" (challengeToken) firmato con HMAC che lega
+// indirizzo, nonce, scadenza e impronta del messaggio. Alla verifica il
+// client rimanda messaggio + biglietto: il server controlla l'HMAC (nessuno
+// puo' fabbricarne uno senza il segreto), la scadenza, che il messaggio sia
+// esattamente quello emesso e che il nonce non sia gia' stato usato. Una
+// challenge chiesta da un disturbatore non tocca in alcun modo le altre.
+//
+// Unico stato: i nonce GIA' USATI (uso singolo), tenuti solo fino alla loro
+// scadenza e ripuliti periodicamente. Cresce solo con verifiche riuscite,
+// che richiedono una firma valida: un estraneo non puo' gonfiarlo.
+// NOTA: resta in memoria di processo — va bene per una singola istanza PM2.
+// -----------------------------------------------------------------------
+const usedNonces = new Map(); // nonce -> expiresAt
+
+function pruneUsedNonces(now = Date.now()) {
+  for (const [nonce, expiresAt] of usedNonces) {
+    if (expiresAt <= now) usedNonces.delete(nonce);
+  }
+}
+setInterval(pruneUsedNonces, 60 * 1000).unref();
 
 function randomNonce() {
   return ethers.hexlify(ethers.randomBytes(12)).slice(2); // 24 caratteri esadecimali
+}
+
+function hmac(secret, data) {
+  return crypto.createHmac("sha256", "challenge:" + secret).update(data).digest("base64url");
+}
+
+function sha256(text) {
+  return crypto.createHash("sha256").update(text, "utf8").digest("base64url");
 }
 
 // Solo questa riga del messaggio deve essere leggibile per un umano nella
@@ -61,16 +96,17 @@ function buildChallengeMessage({ address, domain, nonce, lang }) {
   ].join("\n");
 }
 
-function createChallenge(address, domain, lang) {
-  const normalized = address.toLowerCase();
+function createChallenge(address, domain, lang, secret) {
   const nonce = randomNonce();
   const message = buildChallengeMessage({ address, domain, nonce, lang });
-  pendingChallenges.set(normalized, {
-    nonce,
-    message,
-    expiresAt: Date.now() + CHALLENGE_TTL_MS,
-  });
-  return { message, nonce };
+  const payload = Buffer.from(JSON.stringify({
+    a: address.toLowerCase(),
+    n: nonce,
+    e: Date.now() + CHALLENGE_TTL_MS,
+    h: sha256(message),
+  })).toString("base64url");
+  const challengeToken = `${payload}.${hmac(secret, payload)}`;
+  return { message, nonce, challengeToken };
 }
 
 const ERC1271_MAGIC_VALUE = "0x1626ba7e";
@@ -78,32 +114,46 @@ const ISVALIDSIGNATURE_ABI = [
   "function isValidSignature(bytes32 dataHash, bytes signature) view returns (bytes4)",
 ];
 
-async function verifyChallenge({ address, signature, rpcProvider }) {
-  const normalized = address.toLowerCase();
-  const pending = pendingChallenges.get(normalized);
-
-  if (!pending) return { ok: false, reason: "no_pending_challenge" };
-  if (Date.now() > pending.expiresAt) {
-    pendingChallenges.delete(normalized);
-    return { ok: false, reason: "challenge_expired" };
-  }
-
-  // uso singolo: valida o no, la challenge non e' piu' riutilizzabile
-  pendingChallenges.delete(normalized);
-
-  const hashedMessage = ethers.hashMessage(pending.message);
+// Verifica on-chain via isValidSignature (ERC1271 / LSP6) della UP stessa.
+async function isValidUpSignature({ address, hashedMessage, signature, rpcProvider }) {
   const upContract = new ethers.Contract(address, ISVALIDSIGNATURE_ABI, rpcProvider);
+  const result = await upContract.isValidSignature(hashedMessage, signature);
+  return String(result).toLowerCase() === ERC1271_MAGIC_VALUE;
+}
+
+async function verifyChallenge({ address, signature, message, challengeToken, secret, rpcProvider, checkSignature = isValidUpSignature }) {
+  if (typeof message !== "string" || typeof challengeToken !== "string") {
+    return { ok: false, reason: "missing_challenge" }; // pagina vecchia in cache: va ricaricata
+  }
+  const [payload, mac] = challengeToken.split(".");
+  if (!payload || !mac) return { ok: false, reason: "invalid_challenge" };
+  const expected = hmac(secret, payload);
+  if (mac.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(expected))) {
+    return { ok: false, reason: "invalid_challenge" };
+  }
+  let data;
+  try {
+    data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+  } catch {
+    return { ok: false, reason: "invalid_challenge" };
+  }
+  const now = Date.now();
+  if (data.a !== address.toLowerCase()) return { ok: false, reason: "invalid_challenge" };
+  if (!(data.e > now)) return { ok: false, reason: "challenge_expired" };
+  if (data.h !== sha256(message)) return { ok: false, reason: "invalid_challenge" };
+  if (usedNonces.has(data.n)) return { ok: false, reason: "challenge_already_used" };
 
   try {
-    const result = await upContract.isValidSignature(hashedMessage, signature);
-    if (result.toLowerCase() === ERC1271_MAGIC_VALUE) {
-      return { ok: true };
-    }
-    return { ok: false, reason: "invalid_signature" };
+    const valid = await checkSignature({ address, hashedMessage: ethers.hashMessage(message), signature, rpcProvider });
+    if (!valid) return { ok: false, reason: "invalid_signature" };
   } catch (e) {
     // indirizzo senza codice (EOA nudo, non una vera UP) o RPC irraggiungibile
     return { ok: false, reason: "verification_failed", detail: e.message };
   }
+
+  // uso singolo: una challenge verificata non e' piu' riutilizzabile
+  usedNonces.set(data.n, data.e);
+  return { ok: true };
 }
 
 function issueSessionToken(address, jwtSecret) {
