@@ -227,7 +227,11 @@ deployato o dato già scritto on-chain), solo documentato
   `shared-assets`; lettura dei file dal nodo proprio invece che dal gateway
   Pinata. Resta solo il fallback LUKSO, usato unicamente per i file non
   presenti sul nodo (vecchi upload Pinata): ripinnarli sul nodo lo
-  renderebbe superfluo.
+  renderebbe superfluo. Il pannello admin ha lo strumento "Files to re-pin
+  on the IPFS node": elenca tutti i file referenziati dal contratto, verifica
+  quali mancano sul nodo e prepara i comandi `ipfs pin add` da eseguire sul
+  nodo (per gli allegati di valutazioni private serve il codice segreto del
+  registro, usato solo nella pagina).
 - ✅ **P5 — Metadati sempre visibili anche per i dati privati** (esistenza,
   numero e date di fornitori/valutazioni, etichetta del registro, criteri):
   inevitabili per rendere lo storico verificabile, spiegati in "Come funziona".
