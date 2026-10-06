@@ -248,7 +248,7 @@ Legenda: ✅ corretto · ⏳ aperto · 📌 limite noto, solo documentato
 | | S4 Proxy RPC limitato ai contratti del progetto | ✅ |
 | | S5 Accesso non disturbabile da terzi | ✅ |
 | | S6 Librerie servite in locale con impronte | ✅ |
-| | S6 Content-Security-Policy | ⏳ in osservazione |
+| | S6 Content-Security-Policy | ✅ |
 | | S7 Vincoli imposti solo dall'interfaccia (contratto V3) | 📌 |
 | Interfaccia | L1 Linguaggio comprensibile, senza gergo tecnico | ✅ |
 | | U1–U3, U10 Primo accesso, rete, messaggi d'errore | ✅ |
