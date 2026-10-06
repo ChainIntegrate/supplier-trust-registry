@@ -61,12 +61,11 @@ curl -sI https://supplier-trust-registry.chainintegrate.it/js/app.js | grep -iE 
 # X-Content-Type-Options: nosniff, Referrer-Policy
 ```
 
-**Content-Security-Policy in due fasi.**
-- *Fase 1*: `security-headers.conf` usa `Content-Security-Policy-Report-Only`.
-  Il browser non blocca nulla e scrive nella console (F12) cosa avrebbe
-  bloccato.
-- *Fase 2*: verificata la console, nel file si toglie `-Report-Only` dal
-  nome dell'intestazione, poi `git pull` e reload di Nginx.
+**Content-Security-Policy.** È applicata: il browser blocca ciò che non
+rispetta la policy e lo scrive nella console (F12). Per provare una
+modifica senza rischi si può rinominare temporaneamente l'intestazione in
+`Content-Security-Policy-Report-Only` (segnala senza bloccare), poi
+`git pull` e reload di Nginx.
 
 Se in futuro il sito deve collegarsi a un nuovo dominio (un altro gateway,
 un servizio esterno), va aggiunto a `connect-src` nel file, altrimenti il

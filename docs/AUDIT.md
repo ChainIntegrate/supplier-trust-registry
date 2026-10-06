@@ -123,8 +123,7 @@ non confermata
   alla scadenza.
 - ✅ **S6 (parte 1)** — nessuna libreria da CDN: ethers ed erc725.js da
   `shared-assets`, versioni fissate e impronte in `SHA256SUMS`.
-- ⏳ **S6 (parte 2)** — Content-Security-Policy. Fase 1 (osservazione) in
-  corso. Preparazione:
+- ✅ **S6 (parte 2)** — Content-Security-Policy, applicata. Preparazione:
   - tutto il codice delle pagine è stato spostato dall'HTML a file in
     `frontend/js/`, senza cambiarne la logica (ricomponendo i file si
     ottiene l'HTML originale identico);
@@ -148,10 +147,14 @@ non confermata
   inline, script esterno, `onerror`, link `javascript:` e invio di dati a
   domini esterni vengono bloccati.
 
-  Fase 1: intestazione `Content-Security-Policy-Report-Only`. Il browser
-  segnala in console senza bloccare; si verificano estensione UP, apertura
-  dei PDF e pagina admin con i dati reali. Fase 2: si toglie
-  `-Report-Only`.
+  Fase 1 in produzione con `Content-Security-Policy-Report-Only`, cioè con
+  il browser che segnala senza bloccare. In un uso reale (accesso con
+  l'estensione UP, sblocco, nuovo fornitore, valutazioni con allegato PDF
+  aperto, pagina admin, condivisione riservata in incognito) la console è
+  rimasta vuota, anche nella scheda del PDF. Fase 2: policy applicata.
+
+  Nella stessa sessione è stata verificata la scrittura sul nodo IPFS
+  proprio (`IPFS_API_URL`): 42 file referenziati, tutti presenti sul nodo.
 - 📌 **S7** — vincoli applicati solo lato interfaccia perché il contratto V3
   non li impone (già noto per `addEvaluation`); da riprendere solo in
   un'eventuale V4.
