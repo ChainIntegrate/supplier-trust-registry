@@ -123,7 +123,9 @@ non confermata
   alla scadenza.
 - ✅ **S6 (parte 1)** — nessuna libreria da CDN: ethers ed erc725.js da
   `shared-assets`, versioni fissate e impronte in `SHA256SUMS`.
-- ✅ **S6 (parte 2)** — Content-Security-Policy, applicata. Preparazione:
+- ✅ **S6 (parte 2)** — Content-Security-Policy, applicata. (Estesa in
+  seguito per l'accesso con UP Wallet: relay e Verify di WalletConnect, RPC
+  pubblico di LUKSO; vedi `docs/OPERATIONS.md`.) Preparazione:
   - tutto il codice delle pagine è stato spostato dall'HTML a file in
     `frontend/js/`, senza cambiarne la logica (ricomponendo i file si
     ottiene l'HTML originale identico);

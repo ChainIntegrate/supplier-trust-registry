@@ -1,4 +1,6 @@
 import { ethers } from "/shared/ethers/6.13.4/ethers.min.js";
+// UP Wallet tramite WalletConnect, in alternativa all'estensione (js/walletconnect.js)
+import { connectUpWallet, resumeUpWallet, hasUpWalletSession } from "./walletconnect.js";
 
 const REGISTRY_ABI_JSON = window.REGISTRY_ABI_JSON;
 
@@ -16,6 +18,7 @@ const CONFIG = {
   RPC_URL: window.location.origin + "/api/rpc", // proxy del backend verso il nodo proprio
   IPFS_GATEWAY: "https://ipfs.chainintegrate.it", // nodo proprio, solo file pinnati da noi
   IPFS_FALLBACK_GATEWAY: "https://api.universalprofile.cloud", // gateway LUKSO, vedi fetchFromIPFS in index.html
+  WALLETCONNECT_PROJECT_ID: "8637086b2116ef7e5999e0fd0bcd147f", // UP Wallet, come in index.html (vuoto = pulsante nascosto)
 };
 
 const ABI = REGISTRY_ABI_JSON;
@@ -185,15 +188,19 @@ function explainRevert(e) {
 }
 
 // =======================================================================
-// CONNESSIONE — stesso pattern di index.html: window.lukso, pagina
+// CONNESSIONE — stesso pattern di index.html: estensione Universal Profile
+// (window.lukso) oppure UP Wallet tramite WalletConnect; pagina
 // standalone, nessun Grid necessario.
 // =======================================================================
+let walletProvider = null;
+
 async function connect() {
-  if (!window.lukso) {
-    renderError("No Universal Profile extension detected. Install the UP Browser Extension to continue.");
+  if (!walletProvider) walletProvider = window.lukso || null;
+  if (!walletProvider) {
+    renderError("No Universal Profile extension detected. Install the UP Browser Extension, or use \"Connect UP Wallet\".");
     return;
   }
-  state.ethersProvider = new ethers.BrowserProvider(window.lukso);
+  state.ethersProvider = new ethers.BrowserProvider(walletProvider);
   const accounts = await state.ethersProvider.send("eth_requestAccounts", []);
   state.visitorAccount = accounts[0] || null;
   if (!state.visitorAccount) { renderError("No account connected."); return; }
@@ -208,11 +215,15 @@ async function connect() {
 
   $("btn-connect").textContent = shortAddr(state.visitorAccount);
   $("btn-connect").disabled = true;
+  $("btn-connect-upwallet").style.display = "none";
   $("btn-logout").style.display = "inline-block";
 
-  if (typeof window.lukso.on === "function") {
-    window.lukso.on("accountsChanged", () => window.location.reload());
-    window.lukso.on("chainChanged", () => window.location.reload());
+  if (walletProvider.isUpWallet) {
+    // sessione chiusa da UP Wallet (o "Disconnect"): si riparte da zero
+    walletProvider.on("accountsChanged", (accs) => { if (!accs || accs.length === 0) window.location.reload(); });
+  } else if (typeof walletProvider.on === "function") {
+    walletProvider.on("accountsChanged", () => window.location.reload());
+    walletProvider.on("chainChanged", () => window.location.reload());
   }
 
   const contractOwner = await state.contractReadOnly.owner();
@@ -1143,8 +1154,32 @@ function wireRepinTool() {
 // =======================================================================
 // AVVIO
 // =======================================================================
-$("btn-connect").addEventListener("click", connect);
-$("btn-logout").addEventListener("click", () => window.location.reload());
+$("btn-connect").addEventListener("click", () => {
+  if (!walletProvider?.isUpWallet) walletProvider = null;
+  connect().catch((e) => renderError(e?.shortMessage || e?.message || String(e)));
+});
+if (CONFIG.WALLETCONNECT_PROJECT_ID) $("btn-connect-upwallet").style.display = "inline-block";
+$("btn-connect-upwallet").addEventListener("click", async () => {
+  try {
+    const provider = await connectUpWallet({ projectId: CONFIG.WALLETCONNECT_PROJECT_ID, lang: () => "en" });
+    if (!provider) return; // annullato
+    walletProvider = provider;
+    await connect();
+  } catch (e) {
+    renderError("UP Wallet connection failed: " + (e?.shortMessage || e?.message || String(e)));
+  }
+});
+$("btn-logout").addEventListener("click", async () => {
+  // Con UP Wallet la sessione si chiude davvero, altrimenti verrebbe ripresa.
+  if (walletProvider?.isUpWallet) await walletProvider.disconnect().catch(() => {});
+  window.location.reload();
+});
+// Sessione UP Wallet aperta in precedenza: ripresa al ricaricamento.
+if (CONFIG.WALLETCONNECT_PROJECT_ID && hasUpWalletSession()) {
+  resumeUpWallet({ projectId: CONFIG.WALLETCONNECT_PROJECT_ID, lang: () => "en" })
+    .then((provider) => { if (provider) { walletProvider = provider; return connect(); } })
+    .catch((e) => console.warn("UP Wallet session not resumed:", e));
+}
 
 window.addEventListener("scroll", () => {
   $("btn-back-to-top").style.display = window.scrollY > 400 ? "block" : "none";
