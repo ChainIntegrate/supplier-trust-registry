@@ -37,6 +37,7 @@ prodotti forniti dall'esterno).
 | **Documenti allegati** (Gold) | Certificati, rapporti, non conformità: seguono la stessa scelta pubblico/privato della valutazione |
 | **Più registri** (Silver, Gold) | Registri separati per categorie di fornitori, ognuno con i propri criteri e un'immagine personalizzata |
 | **Continuità aziendale** | Il contratto supporta il collegamento tra registri in caso di successione aziendale, con doppia conferma |
+| **Accesso con estensione o UP Wallet** | Si accede con l'estensione Universal Profile oppure con UP Wallet (estensione del browser o app per smartphone di ChainIntegrate) tramite WalletConnect: stessa Universal Profile, firme e salvataggi confermati in UP Wallet, sessione ripresa al ricaricamento della pagina |
 | **Link condivisibile** | Ogni registro ha un link diretto: chi lo apre ne consulta i contenuti pubblici anche senza estensione e senza accedere |
 | **Condivisione riservata** (Gold) | Una singola valutazione privata, con nome del fornitore e allegato a scelta, resa leggibile a un destinatario esterno (cliente, ente di certificazione, auditor) tramite un link personale. Chi lo riceve non ha bisogno di account né estensione, e la pagina verifica che il contenuto sia identico a quello registrato in origine |
 | **Interfaccia bilingue** | Italiano e inglese, secondo la lingua del browser |
@@ -68,9 +69,14 @@ rilasciare un nuovo contratto.
   usata per indovinare nomi o punteggi.
 - **Nessun servizio di terze parti nel browser.** Font, librerie e file sono
   serviti dall'infrastruttura ChainIntegrate (nodo IPFS e nodo LUKSO propri).
+  Unica eccezione, solo se si sceglie di accedere con UP Wallet: il
+  collegamento passa dal relay di WalletConnect (Reown), con la telemetria
+  disattivata.
 - **Accessi controllati.** Solo il proprietario di un registro può scriverci;
   il caricamento di file è riservato a chi possiede un registro; l'accesso
-  avviene con firma del proprio Universal Profile, senza password.
+  avviene con firma del proprio Universal Profile, senza password (anche con
+  UP Wallet: la firma della chiave del dispositivo è verificata sulla
+  Universal Profile).
 - **Allegati sicuri.** Si aprono nel browser solo PDF e immagini riconosciuti
   dal contenuto reale; tutti gli altri formati vengono scaricati.
 - **Trasparenza sui limiti.** Restano sempre visibili l'esistenza di
@@ -92,6 +98,7 @@ Browser (index.html / admin.html)
   ├── /api/rpc   ─► Backend ────► nodo RPC LUKSO (solo letture sul contratto del registro)
   ├── /api/auth, /api/ipfs/upload ─► Backend ─► API scrittura nodo IPFS (porta 5001, IP autorizzato)
   ├── estensione Universal Profile ─► firma delle scritture sul contratto
+  │   oppure UP Wallet ─► relay WalletConnect (firme) + RPC pubblico LUKSO (stime, ricevute)
   └── lettura file ─► ipfs.chainintegrate.it (gateway del nodo, solo file propri)
                       └─ fallback: api.universalprofile.cloud (hash verificato)
 ```
@@ -160,6 +167,8 @@ supplier-trust-registry/
 │   ├── how-it-works.html         guida utente IT/EN
 │   ├── condivisione.html         pagina di chi riceve una condivisione riservata (senza account)
 │   ├── js/                       codice delle pagine (niente script inline: Content-Security-Policy)
+│   ├── js/walletconnect.js       accesso con UP Wallet tramite WalletConnect
+│   ├── vendor/walletconnect/     SignClient 2.25.0 e generatore QR (versioni fissate, SRI)
 │   └── abi.subset.json           ABI estratta dalla compilazione
 ├── backend/
 │   ├── server.js                 rotte: proxy RPC, accesso, upload

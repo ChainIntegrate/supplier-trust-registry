@@ -11,6 +11,11 @@ const CONFIG = {
   KDF_ITERATIONS: 600000, // PBKDF2-HMAC-SHA256, raccomandazione OWASP 2023/2025
   IPFS_GATEWAY: "https://ipfs.chainintegrate.it", // nodo proprio, sola lettura, solo file pinnati da noi
   IPFS_FALLBACK_GATEWAY: "https://api.universalprofile.cloud", // gateway LUKSO, solo per i file non presenti sul nodo
+  // Project ID di WalletConnect (Reown) per l'accesso con UP Wallet. Non e'
+  // segreto (lo riceve il browser): si protegge con l'elenco dei domini
+  // ammessi nel pannello di Reown. Vuoto = pulsante "Accedi con UP Wallet"
+  // nascosto. Stesso progetto del Traceability Registry e di Cross_Chain.
+  WALLETCONNECT_PROJECT_ID: "8637086b2116ef7e5999e0fd0bcd147f",
 };
 
 // ABI curata (sottoinsieme reale, estratta dalla compilazione — vedi frontend/abi.subset.json,
@@ -27,11 +32,14 @@ const ABI = REGISTRY_ABI_JSON;
 // iframe "genitore".
 // =======================================================================
 import { ethers } from "/shared/ethers/6.13.4/ethers.min.js";
+// UP Wallet tramite WalletConnect, in alternativa all'estensione (js/walletconnect.js)
+import { connectUpWallet, resumeUpWallet, hasUpWalletSession } from "./walletconnect.js";
 
 // =======================================================================
 // STATO GLOBALE
 // =======================================================================
 const state = {
+  walletProvider: null,   // provider EIP-1193 scelto: estensione UP (window.lukso) o UP Wallet (WalletConnect)
   ethersProvider: null,
   readOnlyProvider: null, // Blockscout, solo per letture — separato dal provider dell'estensione UP
   signer: null,
@@ -288,6 +296,8 @@ const I18N = {
     loadFailedDesc: "Non è stato possibile caricare i dati. Controlla la connessione e riprova tra qualche istante.",
     retryBtn: "Riprova",
     connectButton: "Accedi con Universal Profile",
+    connectUpWalletButton: "Accedi con UP Wallet",
+    upWalletError: "Collegamento con UP Wallet non riuscito: {msg}",
     logoutBtn: "Esci",
     averagesLabel: "Media",
     notEnoughDataForChart: "Dati insufficienti",
@@ -300,7 +310,7 @@ const I18N = {
     footerTelegram: "Assistenza via Telegram",
     backToTopLabel: "Torna su",
     howItWorksLabel: "Come funziona",
-    noExtension: "Per accedere serve l'estensione Universal Profile nel browser. Da smartphone, apri questa pagina dal browser integrato nell'app Universal Profile.",
+    noExtension: "Per accedere serve l'estensione Universal Profile nel browser, oppure UP Wallet (\"Accedi con UP Wallet\"). Da smartphone, apri questa pagina dal browser integrato nell'app Universal Profile, oppure usa l'app UP Wallet.",
     noAccount: "Nessun account collegato.",
 
     secretCode: "Codice segreto",
@@ -480,6 +490,8 @@ const I18N = {
     loadFailedDesc: "The data could not be loaded. Check your connection and try again in a moment.",
     retryBtn: "Try again",
     connectButton: "Sign in with Universal Profile",
+    connectUpWalletButton: "Sign in with UP Wallet",
+    upWalletError: "UP Wallet connection failed: {msg}",
     logoutBtn: "Sign out",
     averagesLabel: "Average",
     notEnoughDataForChart: "Not enough data",
@@ -492,7 +504,7 @@ const I18N = {
     footerTelegram: "Telegram support",
     backToTopLabel: "Back to top",
     howItWorksLabel: "How it works",
-    noExtension: "Signing in requires the Universal Profile browser extension. On a smartphone, open this page from the browser built into the Universal Profile app.",
+    noExtension: "Signing in requires the Universal Profile browser extension, or UP Wallet (\"Sign in with UP Wallet\"). On a smartphone, open this page from the browser built into the Universal Profile app, or use the UP Wallet app.",
     noAccount: "No account connected.",
 
     secretCode: "Secret code",
@@ -673,6 +685,7 @@ function applyStaticTranslations() {
   document.title = t("pageTitle");
   document.documentElement.lang = LANG;
   $("btn-connect").textContent = t("connectButton");
+  $("btn-connect-upwallet").textContent = t("connectUpWalletButton");
   $("btn-logout").textContent = t("logoutBtn");
   $("link-how-it-works").textContent = t("howItWorksLabel");
   $("footer-rights").textContent = t("footerRights");
@@ -929,13 +942,16 @@ async function fetchFromIPFS(uri, expectedHash) {
 // nell'URL (per condividere un link diretto), oppure, se assente, si
 // scoprono tutti i registri del visitatore e si mostra una lista.
 // =======================================================================
+// Il provider e' quello scelto: UP Wallet (collegato da connectWithUpWallet
+// o ripreso all'avvio) oppure, di default, l'estensione Universal Profile.
 async function connect(reopenTokenId = null) {
-  if (!window.lukso && state.readOnlyMode && $("read-only-banner")) {
+  if (!state.walletProvider) state.walletProvider = window.lukso || null;
+  if (!state.walletProvider && state.readOnlyMode && $("read-only-banner")) {
     // in sola lettura il registro resta visibile: spiego solo cosa serve per accedere
     $("read-only-banner").textContent = t("noExtension");
     return;
   }
-  if (!window.lukso) {
+  if (!state.walletProvider) {
     renderWelcome(t("noExtension"), false);
     return;
   }
@@ -947,6 +963,27 @@ async function connect(reopenTokenId = null) {
   } catch (e) {
     renderConnectError(e);
   }
+}
+
+// Accesso con UP Wallet (WalletConnect): stessa Universal Profile, firme
+// e salvataggi confermati nella finestra di UP Wallet.
+async function connectWithUpWallet(reopenTokenId = null) {
+  let provider;
+  try {
+    provider = await connectUpWallet({ projectId: CONFIG.WALLETCONNECT_PROJECT_ID, lang: () => LANG });
+  } catch (e) {
+    alert(t("upWalletError", { msg: e?.message || String(e) }));
+    return;
+  }
+  if (!provider) return; // annullato
+  useUpWallet(provider);
+  await connect(reopenTokenId || registryLinkFromUrl());
+}
+
+function useUpWallet(provider) {
+  state.walletProvider = provider;
+  // Sessione chiusa da UP Wallet (o "Esci"): si riparte da zero.
+  provider.on("accountsChanged", (accs) => { if (!accs || accs.length === 0) window.location.reload(); });
 }
 
 function initReadProvider() {
@@ -983,7 +1020,7 @@ function registryLinkFromUrl() {
 }
 
 async function connectAndOpen(reopenTokenId = null) {
-  state.ethersProvider = new ethers.BrowserProvider(window.lukso);
+  state.ethersProvider = new ethers.BrowserProvider(state.walletProvider);
   const accounts = await state.ethersProvider.send("eth_requestAccounts", []);
   state.visitorAccount = accounts[0] || null;
 
@@ -995,9 +1032,11 @@ async function connectAndOpen(reopenTokenId = null) {
   // Ricarica la pagina se l'utente cambia account o rete nell'estensione:
   // registrato PRIMA del controllo di rete, cosi' dopo il cambio di rete
   // (anche dal pulsante qui sotto) la pagina riparte da sola.
-  if (typeof window.lukso.on === "function") {
-    window.lukso.on("accountsChanged", () => window.location.reload());
-    window.lukso.on("chainChanged", () => window.location.reload());
+  // (UP Wallet: rete sempre LUKSO, e la chiusura della sessione e' gestita
+  // in useUpWallet.)
+  if (!state.walletProvider.isUpWallet && typeof state.walletProvider.on === "function") {
+    state.walletProvider.on("accountsChanged", () => window.location.reload());
+    state.walletProvider.on("chainChanged", () => window.location.reload());
   }
 
   // Audit U3: le letture passano dal nostro RPC (sempre mainnet), ma i
@@ -1016,7 +1055,7 @@ async function connectAndOpen(reopenTokenId = null) {
   // dell'utente puo' essere un nodo con profondita' di conservazione
   // limitata ("Receipt not available" su blocchi vecchi), fuori dal
   // nostro controllo. Solo le SCRITTURE (che richiedono la sua firma)
-  // restano legate a window.lukso tramite state.signer/state.contract.
+  // restano legate al provider scelto tramite state.signer/state.contract.
   // staticNetwork: la rete e' nota (LUKSO mainnet), niente riconoscimento
   // automatico — se il nodo e' momentaneamente irraggiungibile, ethers
   // altrimenti resta bloccato nel tentativo di rilevare la rete e anche
@@ -1026,6 +1065,7 @@ async function connectAndOpen(reopenTokenId = null) {
 
   $("btn-connect").textContent = shortAddr(state.visitorAccount);
   $("btn-connect").disabled = true;
+  $("btn-connect-upwallet").style.display = "none";
   $("btn-logout").style.display = "inline-block";
 
   const params = new URLSearchParams(window.location.search);
@@ -2646,6 +2686,19 @@ function renderError(msg) {
 // nell'estensione (eth_accounts non vuoto, richiesta silenziosa) si entra
 // direttamente; altrimenti una schermata di benvenuto con il pulsante.
 async function startup() {
+  // Sessione UP Wallet aperta in precedenza: si riprende senza chiedere nulla.
+  if (hasUpWalletSession()) {
+    try {
+      const provider = await resumeUpWallet({ projectId: CONFIG.WALLETCONNECT_PROJECT_ID, lang: () => LANG });
+      if (provider) {
+        useUpWallet(provider);
+        await connect();
+        return;
+      }
+    } catch (e) {
+      console.warn("Sessione UP Wallet non ripresa:", e);
+    }
+  }
   if (!window.lukso) {
     // l'estensione a volte inietta window.lukso un istante dopo il caricamento
     await new Promise(resolve => setTimeout(resolve, 400));
@@ -2678,10 +2731,14 @@ function renderWelcome(message, showSignIn) {
       <h3>${t("welcomeTitle")}</h3>
       <p class="muted">${message}</p>
       ${showSignIn ? `<button class="btn" id="welcome-connect" style="margin-top:8px;">${t("connectButton")}</button>` : ""}
+      ${upWalletEnabled() ? `<button class="btn btn-ghost" id="welcome-connect-upwallet" style="margin-top:8px;">${t("connectUpWalletButton")}</button>` : ""}
       <p class="muted" style="margin-top:16px;"><a href="how-it-works.html">${t("howItWorksLabel")}</a></p>
     </div>`;
   if (showSignIn) $("welcome-connect").addEventListener("click", () => connect());
+  if (upWalletEnabled()) $("welcome-connect-upwallet").addEventListener("click", () => connectWithUpWallet());
 }
+
+const upWalletEnabled = () => !!CONFIG.WALLETCONNECT_PROJECT_ID;
 
 function renderWrongNetwork(chainId) {
   $("btn-connect").disabled = false;
@@ -2694,7 +2751,7 @@ function renderWrongNetwork(chainId) {
     </div>`;
   $("btn-switch-network").addEventListener("click", async () => {
     try {
-      await window.lukso.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x" + CONFIG.CHAIN_ID.toString(16) }] });
+      await state.walletProvider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x" + CONFIG.CHAIN_ID.toString(16) }] });
       // se l'estensione cambia rete, l'evento chainChanged ricarica la pagina
     } catch {
       $("switch-network-status").textContent = t("switchNetworkFailed");
@@ -2748,9 +2805,18 @@ function explainRevert(e) {
 // AVVIO
 // =======================================================================
 applyStaticTranslations();
-$("btn-connect").addEventListener("click", () => connect());
+$("btn-connect").addEventListener("click", () => {
+  // Con l'estensione: si usa l'estensione anche se prima era stato scelto altro.
+  if (!state.walletProvider?.isUpWallet) state.walletProvider = null;
+  connect();
+});
+if (upWalletEnabled()) $("btn-connect-upwallet").style.display = "inline-block";
+$("btn-connect-upwallet").addEventListener("click", () => connectWithUpWallet());
 startup();
-$("btn-logout").addEventListener("click", () => {
+$("btn-logout").addEventListener("click", async () => {
+  // Con UP Wallet la sessione WalletConnect si chiude davvero (anche in UP
+  // Wallet), altrimenti al ricaricamento verrebbe ripresa.
+  if (state.walletProvider?.isUpWallet) await state.walletProvider.disconnect().catch(() => {});
   // Nessuno stato locale da salvare — il modo piu' sicuro e pulito di
   // azzerare tutto (chiave di cifratura in memoria, listener, sessione col
   // backend) e' semplicemente ricaricare la pagina da zero.

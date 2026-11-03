@@ -71,6 +71,16 @@ Se in futuro il sito deve collegarsi a un nuovo dominio (un altro gateway,
 un servizio esterno), va aggiunto a `connect-src` nel file, altrimenti il
 browser blocca la richiesta.
 
+**Accesso con UP Wallet (WalletConnect).** La policy ammette il relay di
+WalletConnect (`wss://relay.walletconnect.org` e `.com`), l'RPC pubblico di
+LUKSO (`https://rpc.mainnet.lukso.network`, per stime e ricevute dei
+salvataggi firmati con UP Wallet) e il servizio Verify
+(`https://verify.walletconnect.org` e `.com`, anche in `frame-src`: senza,
+UP Wallet mostra il dominio come UNKNOWN). Il project ID di Reown è in
+`frontend/js/app.js` e `frontend/js/admin.js` (`WALLETCONNECT_PROJECT_ID`,
+vuoto = pulsante nascosto); nel pannello di Reown il dominio
+`supplier-trust-registry.chainintegrate.it` deve essere tra quelli ammessi.
+
 Dopo ogni modifica: `sudo nginx -t && sudo systemctl reload nginx` (il solo
 `nginx -t` verifica la sintassi ma non applica nulla).
 
