@@ -125,6 +125,44 @@ Il frontend legge dal gateway del nodo; solo per i file che il nodo non ha
 ripiega sul gateway LUKSO `https://api.universalprofile.cloud`, accettando i
 contenuti pubblici solo se corrispondono all'hash on-chain.
 
+**Nodo condiviso.** Lo stesso nodo serve tutte le app ChainIntegrate
+(Supplier, Traceability, MyCarBook, membership, Cross_Chain,
+MatchPredictor). Ogni modifica al gateway va provata prima con tutte, in
+Report-Only dove possibile. Questa sezione è il riferimento unico per il
+nodo: gli altri repo rimandano qui.
+
+### Stato (verificato il 16/11/2026)
+
+| Punto | Stato |
+|---|---|
+| API Kubo | non raggiungibile da internet, solo dal VPS delle app (firewall); verificato anche dopo un riavvio |
+| Gateway | serve solo i file pinnati (`Gateway.NoFetch=true`) |
+| Limite di richieste | attivo (vedi sotto) |
+| Intestazioni di sicurezza | `X-Content-Type-Options: nosniff`, Content-Security-Policy restrittiva, `Referrer-Policy: no-referrer`, ciascuna una volta sola |
+| Pagine HTML/XHTML/SVG | servite come download (`Content-Disposition: attachment`), mai visualizzate sul dominio; immagini e PDF invariati (PDF visualizzati nel browser) |
+| Server Nginx | nessuna pagina di default per host sconosciuti o accesso diretto all'IP; versione nascosta |
+| Certificati TLS | rinnovo automatico verificato (`certbot renew --dry-run`) |
+| Garbage collection | attiva, con limite di spazio configurato |
+| Protezione accessi | firewall attivo; fail2ban su SSH e sulle aree protette da password |
+| Pin | controllo giornaliero dei file di MyCarBook, con ripin automatico dei mancanti |
+| Monitoraggio | controllo orario dello stato del nodo, con avviso via mail |
+| Riavvio | provato: servizi, gateway, pin e firewall tornano attivi da soli |
+
+Risolto il 16/11/2026 (audit generali del 4/11 e audit MyCarBook):
+- intestazioni di sicurezza sul gateway; HTML, XHTML e SVG serviti come
+  download. Un SVG usato in `<img>` da un'app funziona come prima, uno
+  aperto direttamente dal gateway si scarica;
+- pagina di default di Nginx eliminata e versione nascosta;
+- verificati `limit_req` attivo, rinnovo TLS e ripartenza dopo un riavvio.
+
+Le intestazioni del gateway si verificano così (attese una volta sola
+ciascuna; su un'immagine o un PDF nessun `content-disposition`):
+```bash
+curl -sI https://ipfs.chainintegrate.it/ipfs/<CID di un'immagine pinnata> | grep -iE "content-security|nosniff|referrer|content-disposition"
+```
+Regola Nginx da ricordare: un `add_header` dentro una `location` annulla
+quelli del blocco `server`.
+
 ### Limite di richieste del gateway (Nginx del nodo)
 
 In `/etc/nginx/nginx.conf`:
@@ -161,6 +199,76 @@ pagina di caricare decine di file di colpo. Frontend e pannello admin, su
 5. Nuovo **Scan** nel pannello: atteso "0 to re-pin". Per ogni file ancora
    segnalato, "Details" mostra la risposta del nodo (HTTP, timeout, rete).
 
+### Punti aperti del nodo
+
+| N. | Punto | Priorità |
+|---|---|---|
+| IPFS-1 | Datastore molto più grande dei file pinnati, contenuto non ancora spiegato | Media |
+| IPFS-2 | Il nodo annuncia alla rete anche ciò che non è pinnato | Bassa |
+| IPFS-3 | Aggiornamento di Kubo da pianificare | Da pianificare |
+| IPFS-4 | Collegamento VPS delle app → API del nodo senza cifratura di trasporto (audit S3 parte 2) | Bassa, rischio accettato |
+| IPFS-5 | Nessun backup dei file fuori dal server | Media, rimandato per scelta |
+| IPFS-6 | Residui del gateway | Bassa, opzionale |
+
+**IPFS-1 — Datastore.** Il datastore occupa alcuni GB mentre i file pinnati
+pesano pochi MB, e cresce di qualche MB l'ora. Ipotesi da verificare:
+record della DHT di altri peer. Il garbage collection non libera il
+datastore, quindi il repo si avvicina al limite di spazio. Prima si misura,
+ripetendo dopo 24 ore:
+```bash
+date
+sudo du -sb /home/ipfs/.ipfs/datastore /home/ipfs/.ipfs/blocks
+sudo -u ipfs IPFS_PATH=/home/ipfs/.ipfs ipfs config Routing.Type
+sudo -u ipfs IPFS_PATH=/home/ipfs/.ipfs ipfs repo stat
+```
+Possibile correzione, solo dopo la misura: `Routing.Type dhtclient`, poi
+verificare che i file restino raggiungibili da gateway esterni.
+
+**IPFS-2 — Annunci alla rete.** Strategia `pinned`
+(`Reprovider.Strategy` o `Provide.Strategy`, secondo la versione di Kubo:
+verificare con `ipfs config`), poi riavvio di Kubo. Meno traffico e
+carico. Da decidere insieme a IPFS-1. In alcune versioni di Kubo, con
+`pinned`, `ipfs pin ls` poteva bloccarsi a lungo: il controllo giornaliero
+dei pin lo usa, quindi misurare
+`time ipfs pin ls --type=recursive | wc -l` prima e dopo (ripristino:
+strategia `all`).
+
+**IPFS-3 — Aggiornamento di Kubo.** Senza backup (IPFS-5) si procede con il
+rischio noto. Dopo l'aggiornamento: gateway, upload e pin provati con tutte
+le app, e test di riavvio.
+
+**IPFS-4 — Cifratura del collegamento all'API.** Protezione oggi a livello
+di rete (firewall). Oggi passano solo file destinati a essere pubblici o
+già cifrati nel browser (valutazioni private di Supplier, documenti
+riservati di Traceability). Correzione: tunnel WireGuard, oppure TLS con
+le autorizzazioni dell'API di Kubo; il backend di MyCarBook supporta già
+un'autenticazione verso l'API, da aggiungere a Supplier e Traceability. Da
+fare prima che arrivino sul nodo dati riservati non cifrati.
+
+**IPFS-5 — Backup.** Se il server del nodo si guasta, i file presenti solo
+lì, come gli allegati di Supplier e Traceability, non si recuperano: sulla
+catena resterebbero solo le impronte. Una parte dei file di MyCarBook è
+ancora su Pinata, quindi l'account non va chiuso. Lo script di backup
+(file CAR e manifest SHA-256) è pronto, a livello di nodo per tutti i pin.
+Mancano la destinazione esterna e una prova di ripristino con
+`ipfs dag import` su un nodo pulito.
+
+**IPFS-6 — Residui del gateway.** I CID con il contenuto incorporato
+vengono ancora serviti, come download e non come pagina: si possono
+rifiutare del tutto. A lungo termine, servire IPFS da un dominio
+registrabile separato da chainintegrate.it.
+
+**Ordine consigliato**
+1. IPFS-1 e IPFS-2: misura, poi decisione su routing e strategia di annuncio.
+2. IPFS-3: aggiornamento di Kubo.
+3. IPFS-4: quando si decide di toglierlo dai rischi accettati.
+4. IPFS-5: backup, quando serve.
+
+**Da verificare**
+- Dashboard del monitor tutta verde dopo il riavvio del 16/11.
+- Spazio su disco del nodo: più del 20% libero.
+- Test di riavvio dopo ogni intervento che tocca Nginx o i servizi systemd.
+
 ## Controllo mensile (circa 10 minuti)
 
 **Librerie del backend** (VPS del sito, e allo stesso modo per
@@ -188,5 +296,6 @@ sudo grep -c '" 429 ' /var/log/nginx/access.log
 pm2 status                                               # colonna ↺ stabile
 pm2 logs supplier-trust-registry-backend --lines 50 --nostream   # cercare "fallito"/"failed"
 df -h /                                                  # sul nodo IPFS: >20% libero
+sudo -u ipfs IPFS_PATH=/home/ipfs/.ipfs ipfs repo stat   # sul nodo: spazio del repo (IPFS-1)
 sudo certbot renew --dry-run                             # rinnovo certificati
 ```
