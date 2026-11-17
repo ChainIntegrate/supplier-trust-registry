@@ -108,7 +108,8 @@ non confermata
   git: la protezione vera è il firewall del nodo.
 - ⏳ **S3 (parte 2)** — tratto VPS → nodo IPFS in chiaro: da valutare
   TLS/tunnel (vale anche per traceability-registry). Non urgente: i
-  contenuti privati viaggiano già cifrati.
+  contenuti privati viaggiano già cifrati. Seguito come IPFS-4 tra i punti
+  aperti del nodo, in `docs/OPERATIONS.md`.
 - ✅ **S4 — Proxy RPC aperto a qualunque contratto.** `/api/rpc` ora
   accetta `eth_call` ed `eth_getLogs` solo verso il contratto del registro
   (più `RPC_EXTRA_ALLOWED_ADDRESSES` da `.env`, vuoto di default), e
